@@ -1,5 +1,10 @@
 import numpy as np
 import pandas as pd
+from keras.layers import Concatenate, Input, Dense, Embedding, Flatten, Dropout, BatchNormalization, SpatialDropout1D
+from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau
+from keras.models import Model
+from keras.optimizers import Adam
+import keras.backend as k
 
 pd.options.display.precision = 15
 import warnings
@@ -19,6 +24,7 @@ import xgboost as xgb
 from catboost import CatBoostRegressor, CatBoostClassifier
 from sklearn import metrics
 from sklearn.model_selection import KFold
+
 
 @jit
 def fast_auc(y_true, y_prob):
@@ -167,6 +173,18 @@ def train_model_classification(X, X_test, y, params, folds, model_type='lgb', ev
             if X_test is not None:
                 y_pred = model.predict_proba(X_test)
 
+        if model_type == 'keras':
+            kmodel: Model = model()
+            kmodel.fit(X_train, y_train, validation_data=(X_valid, y_valid), **params)
+            predict_params = {k: v for k, v in params.items() if k in ['batch_size', 'verbose', 'steps', 'callbacks',
+                                                                     'max_queue_size', 'workers',
+                                                                     'use_multiprocessing']}
+            y_pred_valid = kmodel.predict(X_valid, **predict_params)
+            score = metrics_dict[eval_metric]['sklearn_scoring_function'](y_valid, y_pred_valid)
+            print(f'Fold {fold_n}. {eval_metric}: {score:.4f}.')
+            if X_test is not None:
+                y_pred = kmodel.predict(X_test)
+
         if model_type == 'cat':
             model = CatBoostClassifier(iterations=n_estimators,
                                        eval_metric=metrics_dict[eval_metric]['catboost_metric_name'], **params,
@@ -220,5 +238,3 @@ def train_model_classification(X, X_test, y, params, folds, model_type='lgb', ev
             plot_importance(result_dict)
 
     return result_dict
-
-
