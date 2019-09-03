@@ -24,7 +24,7 @@ import xgboost as xgb
 from catboost import CatBoostRegressor, CatBoostClassifier
 from sklearn import metrics
 from sklearn.model_selection import KFold
-
+import gc
 
 @jit
 def fast_auc(y_true, y_prob):
@@ -129,6 +129,7 @@ def train_model_classification(X, X_test, y, params, folds, model_type='lgb', ev
     else:
         splitter = folds.split(X, y, groups=groups)
     for fold_n, (train_index, valid_index) in enumerate(splitter):
+        gc.collect()
         if fold_n < folds.n_splits - n_splits:
             continue
         print(f'Fold {fold_n + 1} started at {time.ctime()}')
