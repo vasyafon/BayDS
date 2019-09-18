@@ -1,7 +1,8 @@
 from typing import List, Set, Dict, Optional, Any, Tuple, Type, Union
-from lib.pipeline.node import Node
-from lib.pipeline.pipeline import *
-from lib.io import *
+from .node import Node
+from .pipeline import *
+from ..io import *
+import numpy as np
 import os
 from sklearn import preprocessing
 
@@ -33,9 +34,9 @@ class TimeTransformNode(Node):
 
         dataset = self.input
         dataset["Date"] = dataset['TransactionDT'].apply(lambda x: (startdate + datetime.timedelta(seconds=x)))
-        dataset['_Weekdays'] = dataset['Date'].dt.dayofweek
-        dataset['_Hours'] = dataset['Date'].dt.hour
-        dataset['_Days'] = dataset['Date'].dt.day
+        dataset['Weekdays'] = dataset['Date'].dt.dayofweek
+        dataset['Hours'] = dataset['Date'].dt.hour
+        dataset['Days'] = dataset['Date'].dt.day
 
         # Taken from Anna Notebook
         dataset['isNight'] = dataset['Hours'].map(lambda x: 1 if (x >= 23 or x < 5) else 0)
@@ -43,7 +44,7 @@ class TimeTransformNode(Node):
         dataset['DT_W'] = (dataset['Date'].dt.year - 2017) * 52 + dataset['Date'].dt.weekofyear
         dataset['DT_D'] = (dataset['Date'].dt.year - 2017) * 365 + dataset['Date'].dt.dayofyear
 
-        dataset.drop(['TransactionDT'], axis=1, inplace=True)
+        # dataset.drop(['TransactionDT'], axis=1, inplace=True)
 
 
 class SomeAggregatesFromAnyaNode(Node):
@@ -147,7 +148,7 @@ class SomeAggregatesFromAnyaNode(Node):
 
         data['TransactionAmt_Log'] = np.log(data['TransactionAmt'])
 
-        data['card1_count_full'] = data['card1'].map(data.value_counts(dropna=False))
+        data['card1_count_full'] = data['card1'].map(data['card1'].value_counts(dropna=False))
 
         # https://www.kaggle.com/fchmiel/day-and-time-powerful-predictive-feature
         data['Transaction_day_of_week'] = np.floor((data['TransactionDT'] / (3600 * 24) - 1) % 7)
@@ -249,6 +250,82 @@ class SomeAggregatesFromAnyaNode(Node):
         for c in category_features:
             data[feature + '_count_full'] = data[feature].map(data[feature].value_counts(dropna=False))
 
+        i_cols = ['M1', 'M2', 'M3', 'M5', 'M6', 'M7', 'M8', 'M9']
+
+        data['M_sum'] = data[i_cols].sum(axis=1).astype(np.int8)
+        data['M_na'] = data[i_cols].isna().sum(axis=1).astype(np.int8)
+
+        for col in ['ProductCD', 'M4']:
+            temp_dict = data.groupby([col])['isFraud'].agg(['mean']).reset_index().rename(
+                columns={'mean': col + '_target_mean'})
+            temp_dict.index = temp_dict[col].values
+            temp_dict = temp_dict[col + '_target_mean'].to_dict()
+
+            data[col + '_target_mean'] = data[col].map(temp_dict)
+
+        #todo: find out if it required
+        # data['TransactionAmt_check'] = np.where(train['TransactionAmt'].isin(test['TransactionAmt']), 1, 0)
+
+        data['uid'] = data['card1'].astype(str) + '_' + data['card2'].astype(str)
+
+        data['uid2'] = data['uid'].astype(str) + '_' + data['card3'].astype(str) + '_' + data['card4'].astype(str)
+
+        data['uid3'] = data['uid2'].astype(str) + '_' + data['addr1'].astype(str) + '_' + data['addr2'].astype(str)
+
+        i_cols = ['card1', 'card2', 'card3', 'card5', 'uid', 'uid2', 'uid3']
+
+        for col in i_cols:
+            for agg_type in ['mean', 'std']:
+                new_col_name = col + '_TransactionAmt_' + agg_type
+                temp_df = data[[col, 'TransactionAmt']]
+                # temp_df['TransactionAmt'] = temp_df['TransactionAmt'].astype(int)
+                temp_df = temp_df.groupby([col])['TransactionAmt'].agg([agg_type]).reset_index().rename(
+                    columns={agg_type: new_col_name})
+
+                temp_df.index = list(temp_df[col])
+                temp_df = temp_df[new_col_name].to_dict()
+
+                data[new_col_name] = data[col].map(temp_df)
+
+        i_cols = ['card1', 'card2', 'card3', 'card5',
+                  'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9', 'C10', 'C11', 'C12', 'C13', 'C14',
+                  'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8',
+                  'addr1', 'addr2',
+                  'dist1', 'dist2',
+                  'P_emaildomain', 'R_emaildomain',
+                  'DeviceInfo',
+                  'id_30',
+                  #           'id_30_device',
+                  'version_id_30',
+                  'version_id_31',
+                  'id_33',
+                  'uid', 'uid2', 'uid3',
+                  ]
+
+        for col in i_cols:
+            temp_df = data[[col]]
+            fq_encode = temp_df[col].value_counts(dropna=False).to_dict()
+            data[col + '_fq_enc'] = data[col].map(fq_encode)
+
+        for col in ['DT_M', 'DT_W', 'DT_D']:
+            temp_df = data[[col]]
+            fq_encode = temp_df[col].value_counts().to_dict()
+
+            data[col + '_total'] = data[col].map(fq_encode)
+
+        periods = ['DT_M', 'DT_W', 'DT_D']
+        i_cols = ['card1', 'card2', 'card3', 'card5', 'uid', 'uid2', 'uid3']
+        for period in periods:
+            for col in i_cols:
+                new_column = col + '_' + period
+
+                temp_df = data[[col, period]]
+                temp_df[new_column] = temp_df[col].astype(str) + '_' + (temp_df[period]).astype(str)
+                fq_encode = temp_df[new_column].value_counts().to_dict()
+
+                data[new_column] = (data[col].astype(str) + '_' + data[period].astype(str)).map(fq_encode)
+                data[new_column] /= data[period + '_total']
+
 
 class EmailTransformNode(Node):
     '''
@@ -279,8 +356,8 @@ class EmailTransformNode(Node):
                   'cox.net': 'other', 'aol.com': 'aol', 'juno.com': 'other', 'icloud.com': 'apple'}
 
         us_emails = ['gmail', 'net', 'edu']
-
+        data = self.input
         for c in ['P_emaildomain', 'R_emaildomain']:
-            train[c + '_bin'] = train[c].map(emails)
-            train[c + '_suffix'] = train[c].map(lambda x: str(x).split('.')[-1])
-            train[c + '_suffix'] = train[c + '_suffix'].map(lambda x: x if str(x) not in us_emails else 'us')
+            data[c + '_bin'] = data[c].map(emails)
+            data[c + '_suffix'] = data[c].map(lambda x: str(x).split('.')[-1])
+            data[c + '_suffix'] = data[c + '_suffix'].map(lambda x: x if str(x) not in us_emails else 'us')

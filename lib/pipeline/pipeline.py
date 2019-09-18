@@ -1,5 +1,5 @@
 from typing import List, Set, Dict, Optional, Any, Tuple, Type, Union
-from lib.pipeline.node import Node
+from .node import Node
 import gc
 import os
 import pandas as pd
@@ -18,12 +18,14 @@ class EraserNode(Node):
 
 class Pipeline(object):
     working_folder: str = ""
-    nodes: List[Tuple[Type[Node], Union[str, Tuple[str, ...]], Union[str, Tuple[str, ...]], Any]] = []
-    data: Dict[str, Any] = {}
+    nodes: List[Tuple[Type[Node], Union[str, Tuple[str, ...]], Union[str, Tuple[str, ...]], Any]] = None
+    data: Dict[str, Any] = None
     running_cursor: int = 0
     name: str = 'pipeline'
 
     def __init__(self, working_folder, name=None):
+        self.nodes = []
+        self.data = {}
         self.working_folder = working_folder
         if not os.path.exists(working_folder):
             os.makedirs(working_folder)

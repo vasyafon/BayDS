@@ -1,8 +1,8 @@
 from typing import List, Set, Dict, Optional, Any, Tuple, Type, Union
-from lib.pipeline.node import Node
-from lib.pipeline.pipeline import *
-from lib.io import *
-from lib.pipeline.ieee_fraud_nodes import *
+from .node import Node
+from .pipeline import *
+from ..io import *
+from .ieee_fraud_nodes import *
 import os
 
 
