@@ -2,6 +2,7 @@ from typing import List, Set, Dict, Optional, Any, Tuple, Type, Union
 from lib.pipeline.node import Node
 from lib.pipeline.pipeline import *
 from lib.io import *
+from lib.pipeline.ieee_fraud_nodes import *
 import os
 
 
@@ -100,22 +101,6 @@ class JoinNode(Node):
         self.output = data
 
 
-class AddNaNCountNode(Node):
-    params = {
-        'name': None,
-        'inplace': True
-    }
-
-    def _run(self):
-        nan_count = self.input.isna().sum(axis=1)
-        if self.params['inplace']:
-            self.input[self.params['name']] = nan_count
-            self.output = self.input
-        else:
-            self.output = pd.DataFrame(index=self.input.index)
-            self.output[self.params['name']] = nan_count
-
-
 class FunctionNode(Node):
     params = {
         'function': lambda q: q
@@ -123,50 +108,3 @@ class FunctionNode(Node):
 
     def _run(self):
         self.output = self.params['function'](self.input)
-
-
-if __name__ == '__main__':
-    p = Pipeline(working_folder=r'f:\my\Prog\kaggle\Baydin\Temp\1')
-
-    p.add_node(IEEEFraudTransactionLoaderNode, None, 'transactions',
-               params={
-                   'input_directory': r'f:\my\Prog\kaggle\Fraud\data'
-               })
-
-    p.add_node(IEEEFraudIdentityLoaderNode, None, 'identity',
-               params={
-                   'input_directory': r'f:\my\Prog\kaggle\Fraud\data'
-               })
-
-    p.add_node(AddNaNCountNode, 'transactions', 'transactions',
-               params={
-                   'name': 'NanTransactionCount'
-               })
-    p.add_node(AddNaNCountNode, 'identity', 'identity',
-               params={
-                   'name': 'NanIdentityCount'
-               })
-    p.add_node(JoinNode,
-               ('transactions', 'identity'),
-               'data',
-               params={
-                   'on': 'TransactionID'
-               })
-
-    p.add_node(EraserNode, params={
-        'remove_keys': ['transactions', 'identity']
-    })
-
-    # p.add_node(FunctionNode,)
-
-    # p.add_node(LoaderNode, None, 'raw_data',
-    #            params={
-    #                'input_directory': r'f:\my\Prog\kaggle\Baydin\Temp\1',
-    #                'file': 'data.pkl'
-    #            })
-
-    p.save()
-    p.run(verbose=True)
-    print(p.data)
-    p.save_data('pickle')
-    # p.save_data('hdf')

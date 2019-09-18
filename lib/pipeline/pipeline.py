@@ -1,6 +1,7 @@
 from typing import List, Set, Dict, Optional, Any, Tuple, Type, Union
 from lib.pipeline.node import Node
 import gc
+import os
 import pandas as pd
 from pandas.core.frame import DataFrame
 import json
@@ -24,6 +25,8 @@ class Pipeline(object):
 
     def __init__(self, working_folder, name=None):
         self.working_folder = working_folder
+        if not os.path.exists(working_folder):
+            os.makedirs(working_folder)
         if name is not None:
             self.name = name
 
@@ -47,20 +50,27 @@ class Pipeline(object):
             print('---------------------------')
             print(f'{self.running_cursor}: {node.__name__} [{start_date.strftime("%Y-%m-%d %H:%M:%S")}]')
             print('params:\n', str(params))
-        n: Node = node(params=params)
-        if input_key is not None:
-            if isinstance(input_key, str):
-                n.input = self.data[input_key]
-            elif isinstance(input_key, Iterable):
-                n.input = [self.data[k] for k in input_key]
-        n.start()
-        if output_key is not None:
-            assert n.output is not None
-            if isinstance(output_key, str):
-                self.data[output_key] = n.output
-            elif isinstance(output_key, Iterable):
-                for i, k in enumerate(output_key):
-                    self.data[k] = n.output[i]
+        if issubclass(node, EraserNode):
+            for k in params['remove_keys']:
+                if k in self.data:
+                    del self.data[k]
+                else:
+                    print(f"Warning: {k} is not in data")
+        else:
+            n: Node = node(params=params)
+            if input_key is not None:
+                if isinstance(input_key, str):
+                    n.input = self.data[input_key]
+                elif isinstance(input_key, Iterable):
+                    n.input = [self.data[k] for k in input_key]
+            n.start()
+            if output_key is not None:
+                assert n.output is not None
+                if isinstance(output_key, str):
+                    self.data[output_key] = n.output
+                elif isinstance(output_key, Iterable):
+                    for i, k in enumerate(output_key):
+                        self.data[k] = n.output[i]
 
         self.running_cursor += 1
 
