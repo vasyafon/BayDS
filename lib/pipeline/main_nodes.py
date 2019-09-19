@@ -2,6 +2,7 @@ from typing import List, Set, Dict, Optional, Any, Tuple, Type, Union
 from .node import Node
 from .pipeline import *
 from ..io import *
+from ..utils import *
 from .ieee_fraud_nodes import *
 import os
 
@@ -108,3 +109,12 @@ class FunctionNode(Node):
 
     def _run(self):
         self.output = self.params['function'](self.input)
+
+
+class ReduceMemoryUsageNode(Node):
+    params = {
+        'verbose': False
+    }
+
+    def _run(self):
+        self.output = reduce_mem_usage_sd(self.input, verbose=self.params['verbose'])

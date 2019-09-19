@@ -8,9 +8,11 @@ from lib.pipeline.main_nodes import *
 import os
 
 if __name__ == '__main__':
-    data_dir =r'd:\Documents\Private\Kaggle\Baydin\Data'
+    # main_dir = r'd:\Documents\Private\Kaggle\Baydin'
+    main_dir = r'f:\my\Prog\kaggle\Baydin'
+    data_dir = f'{main_dir}/Data'
 
-    p = Pipeline(working_folder=r'd:\Documents\Private\Kaggle\Baydin\Snapshots\1')
+    p = Pipeline(working_folder=f'{main_dir}/Snapshots/1')
 
     p.add_node(IEEEFraudTransactionLoaderNode, None, 'transactions',
                params={
@@ -40,7 +42,11 @@ if __name__ == '__main__':
     p.add_node(EraserNode, params={
         'remove_keys': ['transactions', 'identity']
     })
-
+    p.add_node(ReduceMemoryUsageNode,
+               'data', 'data',
+               params={
+                   'verbose': True
+               })
     p.run(verbose=True)
     print(p.data['data'].columns)
     p.save_data('pickle')
