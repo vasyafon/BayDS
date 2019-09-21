@@ -9,6 +9,7 @@ from ..encoding import LabelEncoderPopularity
 from ..aggregations.temporal import aggregate_with_time_local
 import multiprocess as mp
 
+
 class IEEEFraudTransactionLoaderNode(Node):
     params = {
         'input_directory': None
@@ -39,6 +40,7 @@ class IEEEFraudIdentityLoaderNode(Node):
         data_id.set_index('TransactionID', inplace=True)
         self.output = data_id
 
+
 class AddNaNCountNode(Node):
     params = {
         'name': None,
@@ -65,7 +67,7 @@ class TimeTransformNode(Node):
         startdate = datetime.datetime.strptime(START_DATE, "%Y-%m-%d")
 
         dataset = self.input
-        dataset["Date"] = dataset['TransactionDT'].apply(lambda x: (startdate + datetime.timedelta(seconds=x)))
+        dataset["Date"] = dataset['Transaction  DT'].apply(lambda x: (startdate + datetime.timedelta(seconds=x)))
         dataset['Weekdays'] = dataset['Date'].dt.dayofweek
         dataset['Hours'] = dataset['Date'].dt.hour
         dataset['Days'] = dataset['Date'].dt.day
@@ -661,11 +663,12 @@ class AddTemporalAggregates(Node):
     }
 
     def _run(self):
-        with mp.Pool(3) as Pool:
+        with mp.Pool() as Pool:
             data = self.input[0]
             num_cols = self.input[1]
             cat_cols = self.input[2]
             group_by_feature = self.params['group_by']
+            self.output = pd.DataFrame(index=data.index)
             for nf in self.params['features']:
                 if nf not in data.columns:
                     continue
@@ -680,6 +683,6 @@ class AddTemporalAggregates(Node):
                 #         df = pd.concat(m, axis=1)
                 #         df['TransactionID'] = data_slice['TransactionID']
                 #         df.set_index('TransactionID')
-                data.join(df)
+                self.output = self.output.join(df)
                 num_cols.extend(list(df.columns))
         #         break

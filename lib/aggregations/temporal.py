@@ -6,7 +6,7 @@ def aggregate_with_time_local(args):
     #     data_slice = data[['Date',group_column,num_feature]].reset_index()
     gb = data_slice.groupby([group_column])
     q = gb.rolling(window_size, on='Date', min_periods=1)[num_feature].agg(['mean', 'std'])
-    ds = data_slice.set_index(['card_id', 'Date'])
+    ds = data_slice.set_index([group_column, 'Date'])
     ds = ds.join(q)
     ds = ds.set_index('TransactionID').sort_index()
     to_mean = ds[num_feature] / ds['mean']

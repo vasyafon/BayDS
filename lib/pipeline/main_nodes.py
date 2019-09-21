@@ -123,6 +123,25 @@ class CatBoostEncoderNode(Node):
         self.output = cat_data
 
 
+class LabelEncoderNode(Node):
+    params = {
+    }
+
+    def _run(self):
+        from category_encoders.cat_boost import CatBoostEncoder
+
+        data = self.input[0]
+        num_cols = self.input[1]
+        cat_cols = self.input[2]
+
+        le = LabelEncoderPopularity(convert_nan=True)
+        for feature in cat_cols:
+            le.fit(data[feature].astype(str))
+            data[feature] = le.transform(data[feature].astype(str)).astype(np.int32)
+
+        self.output = data
+
+
 class DownsamplingTrainNode(Node):
     params = {
         'random_state': 12,
