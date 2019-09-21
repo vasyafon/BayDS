@@ -5,37 +5,8 @@ from ..io import *
 from ..utils import *
 from .ieee_fraud_nodes import *
 import os
-
-
-class IEEEFraudTransactionLoaderNode(Node):
-    params = {
-        'input_directory': None
-    }
-
-    def _run(self):
-        folder_path = self.params['input_directory']
-        files = [f'{folder_path}/train_transaction.csv',
-                 f'{folder_path}/test_transaction.csv']
-        train_transaction, test_transaction = map(load_data, files)
-        test_transaction['isFraud'] = -1
-        data = pd.concat([train_transaction, test_transaction], axis=0, sort=False)
-        data.set_index('TransactionID', inplace=True)
-        self.output = data
-
-
-class IEEEFraudIdentityLoaderNode(Node):
-    params = {
-        'input_directory': None
-    }
-
-    def _run(self):
-        folder_path = self.params['input_directory']
-        files = [f'{folder_path}/train_identity.csv',
-                 f'{folder_path}/test_identity.csv']
-        train_identity, test_identity = map(load_data, files)
-        data_id = pd.concat([train_identity, test_identity], axis=0, sort=False)
-        data_id.set_index('TransactionID', inplace=True)
-        self.output = data_id
+import yaml
+import json
 
 
 class LoaderNode(Node):
@@ -60,6 +31,10 @@ class LoaderNode(Node):
             elif ext == '.h5':
                 print('You should set "file" to tuple (filename, key)')
                 raise RuntimeError
+            elif ext in ('.yaml', '.yml'):
+                data = yaml.load(open(f'{folder_path}/{filename}', 'r'), Loader=yaml.FullLoader)
+            elif ext == 'json':
+                data = json.load(open(f'{folder_path}/{filename}', 'r'))
             else:
                 print('unsupported file extension')
                 raise RuntimeError
@@ -118,3 +93,53 @@ class ReduceMemoryUsageNode(Node):
 
     def _run(self):
         self.output = reduce_mem_usage_sd(self.input, verbose=self.params['verbose'])
+
+
+class CatBoostEncoderNode(Node):
+    params = {
+
+    }
+
+    def _run(self):
+        from category_encoders.cat_boost import CatBoostEncoder
+
+        data = self.input[0]
+        num_cols = self.input[1]
+        cat_cols = self.input[2]
+
+        train = data[data['isFraud'] != -1]
+
+        X = train.drop('isFraud', axis=1)
+        y = train['isFraud'].astype(np.uint8)
+
+        del train
+
+        encoder = CatBoostEncoder(verbose=1, cols=cat_cols)
+        encoder.fit(X, y)
+
+        cat_data: pd.DataFrame = data.drop('isFraud', axis=1)
+        cat_data = encoder.transform(cat_data)
+        cat_data = cat_data.join(data['isFraud'])
+        self.output = cat_data
+
+
+class DownsamplingTrainNode(Node):
+    params = {
+        'random_state': 12,
+        'strategy': 'equalize'
+    }
+
+    def _run(self):
+        data = self.input
+
+        train_pos = data[data['isFraud'] == 1]
+        train_neg = data[data['isFraud'] == 0]
+
+        if self.params['strategy'] == 'equalize':
+            desired_size = train_pos.shape[0]
+        else:
+            raise NotImplementedError
+
+        train_neg = train_neg.sample(desired_size, random_state=self.params['random_state'])
+
+        self.output = pd.concat([train_pos, train_neg]).sort_index()

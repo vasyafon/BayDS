@@ -8,6 +8,7 @@ import json
 import time
 import datetime
 from collections.abc import Iterable
+import yaml
 
 
 class EraserNode(Node):
@@ -83,20 +84,28 @@ class Pipeline(object):
         self.add_node(node, input_key, output_key, params)
         self.run_step(verbose=verbose)
 
-    def save_data(self, format='pickle'):
+    def save_data(self, format='pickle', dict_format='yaml', verbose=True):
         for k, df in self.data.items():
-            if not isinstance(df, (pd.DataFrame, DataFrame)):
-                print(f"Error, {k} is not DataFrame, but {type(df)}")
-                # continue
-            df: pd.DataFrame
-            if format == 'pickle':
-                df.to_pickle(f'{self.working_folder}/{k}.pkl')
-            elif format == 'csv':
-                df.to_csv(f'{self.working_folder}/{k}.csv')
-            if format == 'feather':
-                df.to_feather(f'{self.working_folder}/{k}.fth')
-            if format == 'hdf':
-                df.to_hdf(f'{self.working_folder}/{self.name}.h5', k)
+            if verbose:
+                print(f'Saving {k}')
+            if isinstance(df, pd.DataFrame):
+                df: pd.DataFrame
+                if format == 'pickle':
+                    df.to_pickle(f'{self.working_folder}/{k}.pkl')
+                elif format == 'csv':
+                    df.to_csv(f'{self.working_folder}/{k}.csv')
+                if format == 'feather':
+                    df.to_feather(f'{self.working_folder}/{k}.fth')
+                if format == 'hdf':
+                    df.to_hdf(f'{self.working_folder}/{self.name}.h5', k)
+            else:
+                try:
+                    if dict_format == 'yaml':
+                        yaml.dump(df, open(f'{self.working_folder}/{k}.yaml', 'w'))
+                    if dict_format == 'json':
+                        json.dump(df, open(f'{self.working_folder}/{k}.json', 'w'))
+                except Exception as ex:
+                    print(f"Can't dump {k}")
 
     def save(self, format='json'):
         node_description = []

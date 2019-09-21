@@ -5,7 +5,39 @@ from ..io import *
 import numpy as np
 import os
 from sklearn import preprocessing
+from ..encoding import LabelEncoderPopularity
+from ..aggregations.temporal import aggregate_with_time_local
+import multiprocess as mp
 
+class IEEEFraudTransactionLoaderNode(Node):
+    params = {
+        'input_directory': None
+    }
+
+    def _run(self):
+        folder_path = self.params['input_directory']
+        files = [f'{folder_path}/train_transaction.csv',
+                 f'{folder_path}/test_transaction.csv']
+        train_transaction, test_transaction = map(load_data, files)
+        test_transaction['isFraud'] = -1
+        data = pd.concat([train_transaction, test_transaction], axis=0, sort=False)
+        data.set_index('TransactionID', inplace=True)
+        self.output = data
+
+
+class IEEEFraudIdentityLoaderNode(Node):
+    params = {
+        'input_directory': None
+    }
+
+    def _run(self):
+        folder_path = self.params['input_directory']
+        files = [f'{folder_path}/train_identity.csv',
+                 f'{folder_path}/test_identity.csv']
+        train_identity, test_identity = map(load_data, files)
+        data_id = pd.concat([train_identity, test_identity], axis=0, sort=False)
+        data_id.set_index('TransactionID', inplace=True)
+        self.output = data_id
 
 class AddNaNCountNode(Node):
     params = {
@@ -263,7 +295,7 @@ class SomeAggregatesFromAnyaNode(Node):
 
             data[col + '_target_mean'] = data[col].map(temp_dict)
 
-        #todo: find out if it required
+        # todo: find out if it required
         # data['TransactionAmt_check'] = np.where(train['TransactionAmt'].isin(test['TransactionAmt']), 1, 0)
 
         data['uid'] = data['card1'].astype(str) + '_' + data['card2'].astype(str)
@@ -361,3 +393,293 @@ class EmailTransformNode(Node):
             data[c + '_bin'] = data[c].map(emails)
             data[c + '_suffix'] = data[c].map(lambda x: str(x).split('.')[-1])
             data[c + '_suffix'] = data[c + '_suffix'].map(lambda x: x if str(x) not in us_emails else 'us')
+
+
+class AddDeviceOSInfoNode(Node):
+    def _run(self):
+        data: pd.DataFrame = self.input[0]
+        num_cols = self.input[1]
+        cat_cols = self.input[2]
+        data['OS'] = np.NaN
+        data['OSVersion'] = np.NaN
+
+        def create_dev_map_dict():
+            import re
+            vc = data['id_30'].value_counts()
+            id_30_to_OS = {}
+            id_30_to_OSVersion = {}
+            for s in vc.index:
+                M = re.match(r'Windows\s+(\S+)', s)
+                if M is not None:
+                    id_30_to_OS[s] = 'Windows'
+                    id_30_to_OSVersion[s] = M.groups()[0]
+                    continue
+                M = re.match(r'iOS\s+(\S+)', s)
+                if M is not None:
+                    id_30_to_OS[s] = 'iOS'
+                    id_30_to_OSVersion[s] = M.groups()[0]
+                    continue
+                M = re.match(r'Mac OS X\s+(\S+)', s)
+                if M is not None:
+                    id_30_to_OS[s] = 'Mac'
+                    id_30_to_OSVersion[s] = M.groups()[0]
+                    continue
+                M = re.match(r'Android\s+(\S+)', s)
+                if M is not None:
+                    id_30_to_OS[s] = 'Android '
+                    id_30_to_OSVersion[s] = M.groups()[0]
+                    continue
+                id_30_to_OS[s] = s
+
+            return id_30_to_OS, id_30_to_OSVersion
+
+        id_30_to_OS, id_30_to_OSVersion = create_dev_map_dict()
+
+        found_index = data.loc[data['id_30'].isin(id_30_to_OS.keys())].index
+        data.loc[found_index, 'OS'] = data.loc[found_index]['id_30'].replace(id_30_to_OS)
+        data.loc[found_index, 'OSVersion'] = data.loc[found_index]['id_30'].replace(id_30_to_OSVersion)
+
+        data['device_name'] = data['DeviceInfo'].str.split('/', expand=True)[0]
+        data['device_version'] = data['DeviceInfo'].str.split('/', expand=True)[1]
+
+        data.loc[data['device_name'].str.contains('SM', na=False), 'device_name'] = 'Samsung'
+        data.loc[data['device_name'].str.contains('SAMSUNG', na=False), 'device_name'] = 'Samsung'
+        data.loc[data['device_name'].str.contains('GT-', na=False), 'device_name'] = 'Samsung'
+        data.loc[data['device_name'].str.contains('Moto G', na=False), 'device_name'] = 'Motorola'
+        data.loc[data['device_name'].str.contains('Moto', na=False), 'device_name'] = 'Motorola'
+        data.loc[data['device_name'].str.contains('moto', na=False), 'device_name'] = 'Motorola'
+        data.loc[data['device_name'].str.contains('LG-', na=False), 'device_name'] = 'LG'
+        data.loc[data['device_name'].str.contains('rv:', na=False), 'device_name'] = 'RV'
+        data.loc[data['device_name'].str.contains('HUAWEI', na=False), 'device_name'] = 'Huawei'
+        data.loc[data['device_name'].str.contains('ALE-', na=False), 'device_name'] = 'Huawei'
+        data.loc[data['device_name'].str.contains('-L', na=False), 'device_name'] = 'Huawei'
+        data.loc[data['device_name'].str.contains('Blade', na=False), 'device_name'] = 'ZTE'
+        data.loc[data['device_name'].str.contains('BLADE', na=False), 'device_name'] = 'ZTE'
+        data.loc[data['device_name'].str.contains('Linux', na=False), 'device_name'] = 'Linux'
+        data.loc[data['device_name'].str.contains('XT', na=False), 'device_name'] = 'Sony'
+        data.loc[data['device_name'].str.contains('HTC', na=False), 'device_name'] = 'HTC'
+        data.loc[data['device_name'].str.contains('ASUS', na=False), 'device_name'] = 'Asus'
+        data.loc[data.device_name.isin(
+            data.device_name.value_counts()[data.device_name.value_counts() < 200].index), 'device_name'] = "Others"
+
+        def create_browser_map_dict():
+            import re
+            vc = data['id_31'].value_counts()
+            id_31_to_Browser = {}
+            id_31_to_BrowserVersion = {}
+            for s in vc.index:
+                M = re.match(r'mobile safari\s+(\S+)', s)
+                if M is not None:
+                    id_31_to_Browser[s] = 'mobile safari'
+                    id_31_to_BrowserVersion[s] = M.groups()[0]
+                    continue
+                M = re.match(r'chrome\s+(\S+)', s)
+                if M is not None:
+                    id_31_to_Browser[s] = 'chrome'
+                    id_31_to_BrowserVersion[s] = M.groups()[0]
+                    continue
+                M = re.match(r'ie (\S+) for desktop', s)
+                if M is not None:
+                    id_31_to_Browser[s] = 'ie desktop'
+                    id_31_to_BrowserVersion[s] = M.groups()[0]
+                    continue
+                M = re.match(r'safari generic', s)
+                if M is not None:
+                    id_31_to_Browser[s] = 'safari'
+                    id_31_to_BrowserVersion[s] = np.NaN
+                    continue
+                M = re.match(r'safari (\S+)', s)
+                if M is not None:
+                    id_31_to_Browser[s] = 'safari'
+                    id_31_to_BrowserVersion[s] = M.groups()[0]
+                    continue
+                M = re.match(r'edge (\S+)', s)
+                if M is not None:
+                    id_31_to_Browser[s] = 'edge'
+                    id_31_to_BrowserVersion[s] = M.groups()[0]
+                    continue
+                M = re.match(r'firefox (\S+)', s)
+                if M is not None:
+                    id_31_to_Browser[s] = 'firefox'
+                    id_31_to_BrowserVersion[s] = M.groups()[0]
+                    continue
+                M = re.match(r'samsung browser (\S+)', s)
+                if M is not None:
+                    id_31_to_Browser[s] = 'samsung browser'
+                    id_31_to_BrowserVersion[s] = M.groups()[0]
+                    continue
+                M = re.match(r'ie (\S+) for tablet', s)
+                if M is not None:
+                    id_31_to_Browser[s] = 'ie tablet'
+                    id_31_to_BrowserVersion[s] = M.groups()[0]
+                    continue
+                M = re.match(r'google search application (\S+)', s)
+                if M is not None:
+                    id_31_to_Browser[s] = 'google search application'
+                    id_31_to_BrowserVersion[s] = M.groups()[0]
+                    continue
+                M = re.match(r'android webview (\S+)', s)
+                if M is not None:
+                    id_31_to_Browser[s] = 'android webview'
+                    id_31_to_BrowserVersion[s] = M.groups()[0]
+                    continue
+                M = re.match(r'android browser (\S+)', s)
+                if M is not None:
+                    id_31_to_Browser[s] = 'android browser'
+                    id_31_to_BrowserVersion[s] = M.groups()[0]
+                    continue
+                M = re.match(r'opera (\S+)', s)
+                if M is not None:
+                    id_31_to_Browser[s] = 'opera'
+                    id_31_to_BrowserVersion[s] = M.groups()[0]
+                    continue
+                M = re.match(r'Generic/Android (\S+)', s)
+                if M is not None:
+                    id_31_to_Browser[s] = 'Generic/Android'
+                    id_31_to_BrowserVersion[s] = M.groups()[0]
+                    continue
+                id_31_to_Browser[s] = s
+                id_31_to_BrowserVersion[s] = np.NaN
+
+            return id_31_to_Browser, id_31_to_BrowserVersion
+
+        id_31_to_Browser, id_31_to_BrowserVersion = create_browser_map_dict()
+        data['Browser'] = np.NaN
+        data['BrowserVersion'] = np.NaN
+        found_index = data.loc[data['id_31'].isin(id_31_to_Browser.keys())].index
+        data.loc[found_index, 'Browser'] = data.loc[found_index]['id_31'].replace(id_31_to_Browser)
+        data.loc[found_index, 'BrowserVersion'] = data['id_31'].replace(id_31_to_BrowserVersion)
+        data.loc[
+            data.Browser.isin(data.Browser.value_counts()[data.Browser.value_counts() < 10].index), 'Browser'] = "other"
+
+        edge = {}
+        edge["13"] = "2015-09-18"
+        edge["14"] = "2016-02-18"
+        edge["15"] = "2016-10-07"
+        edge["16"] = "2017-09-26"
+        edge["17"] = "2018-04-30"
+        edge["18"] = "2018-11-13"
+        edge_map = {}
+        for k, v in edge.items():
+            edge_map[str(k) + '.0'] = datetime.datetime.strptime(v, "%Y-%m-%d")
+
+        firefox = {}
+        firefox["47"] = "2016-06-07"
+        firefox["48"] = "2016-08-01"
+        firefox["52"] = "2017-03-07"
+        firefox["55"] = "2017-08-08"
+        firefox["56"] = "2017-09-28"
+        firefox["57"] = "2017-11-14"
+        firefox["58"] = "2018-01-23"
+        firefox["59"] = "2018-03-13"
+        firefox["60"] = "2018-05-09"
+        firefox["61"] = "2018-06-26"
+        firefox["62"] = "2018-09-05"
+        firefox["63"] = "2018-10-23"
+        firefox["64"] = "2018-12-11"
+        firefox_map = {}
+        for k, v in firefox.items():
+            firefox_map[str(k) + '.0'] = datetime.datetime.strptime(v, "%Y-%m-%d")
+
+        safari = {}
+        safari["9"] = "2015-09-30"
+        safari["10"] = "2016-09-20"
+        safari["11"] = "2017-09-19"
+        safari["12"] = "2018-09-17"
+        safari_map = {}
+        for k, v in safari.items():
+            safari_map[str(k) + '.0'] = datetime.datetime.strptime(v, "%Y-%m-%d")
+
+        chrome = {}
+        chrome["39"] = "2014-11-18"
+        chrome["43"] = "2015-05-19"
+        chrome["46"] = "2015-10-13"
+        chrome["49"] = "2016-03-02"
+        chrome["50"] = "2016-04-13"
+        chrome["51"] = "2016-05-25"
+        chrome["52"] = "2016-07-20"
+        chrome["53"] = "2016-08-31"
+        chrome["54"] = "2016-10-12"
+        chrome["55"] = "2016-12-01"
+        chrome["56"] = "2017-01-25"
+        chrome["57"] = "2017-03-09"
+        chrome["58"] = "2017-04-19"
+        chrome["59"] = "2017-06-05"
+        chrome["60"] = "2017-07-25"
+        chrome["61"] = "2017-09-05"
+        chrome["62"] = "2017-10-17"
+        chrome["63"] = "2017-12-05"
+        chrome["64"] = "2018-01-24"
+        chrome["65"] = "2018-03-06"
+        chrome["66"] = "2018-04-17"
+        chrome["67"] = "2018-05-29"
+        chrome["68"] = "2018-07-24"
+        chrome["69"] = "2018-09-04"
+        chrome["70"] = "2018-10-16"
+        chrome["71"] = "2018-12-04"
+        chrome_map = {}
+        for k, v in chrome.items():
+            chrome_map[str(k) + '.0'] = datetime.datetime.strptime(v, "%Y-%m-%d")
+
+        data['BrowserAge'] = np.NaN
+
+        supported_browsers = [
+            ('chrome', chrome_map),
+            ('safari', safari_map),
+            ('edge', edge_map),
+            ('firefox', firefox_map)
+        ]
+        for browser, browser_map in supported_browsers:
+            idx = data[data.Browser == browser][data.BrowserVersion.isin(browser_map.keys())].index
+            fdata = data[data.Browser == browser]
+            fdata.loc[idx, 'BrowserAge'] = ((fdata.loc[idx]['Date'].astype('datetime64[s]') - (
+                fdata.loc[idx]['BrowserVersion'].replace(browser_map)).astype('datetime64[s]'))) / np.timedelta64(1,
+                                                                                                                  'D')
+
+        cat_cols.extend(['Browser', 'OS', 'OSVersion', 'device_name', 'device_version'])
+        num_cols.extend(['BrowserAge', 'BrowserVersion', 'screen_height', 'screen_width'])
+
+
+class AddCardIdNode(Node):
+    def _run(self):
+        data: pd.DataFrame = self.input[0]
+        num_cols = self.input[1]
+        cat_cols = self.input[2]
+        data['card_id'] = data['card1'].map(str)
+        for col in ['card%d' % i for i in range(2, 6)]:
+            data['card_id'] += data[col].map(lambda v: " " + str(v))
+        L = LabelEncoderPopularity(convert_nan=True)
+        L.fit(data['card_id'])
+        data['card_id'] = L.transform(data['card_id'])
+        cat_cols.append('card_id')
+
+
+class AddTemporalAggregates(Node):
+    params = {
+        'features': [],
+        'group_by': 'card_id'
+    }
+
+    def _run(self):
+        with mp.Pool(3) as Pool:
+            data = self.input[0]
+            num_cols = self.input[1]
+            cat_cols = self.input[2]
+            group_by_feature = self.params['group_by']
+            for nf in self.params['features']:
+                if nf not in data.columns:
+                    continue
+                print(nf)
+                df = pd.DataFrame(index=data.index)
+                data_slice = data[['Date', group_by_feature, nf]].reset_index()
+                args = [(data_slice, group_by_feature, nf, ws) for ws in ['1d', '2d', '3d', '7d', '30d', 5, 10, 100]]
+                m = Pool.imap(aggregate_with_time_local, args)
+                for i, df_agg in enumerate(m):
+                    print('.')
+                    df = pd.concat([df, df_agg], axis=1)
+                #         df = pd.concat(m, axis=1)
+                #         df['TransactionID'] = data_slice['TransactionID']
+                #         df.set_index('TransactionID')
+                data.join(df)
+                num_cols.extend(list(df.columns))
+        #         break
