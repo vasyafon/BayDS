@@ -194,9 +194,9 @@ def train_model_classification(X, X_test, y, params, folds, model_type='lgb', ev
             model.fit(X_train, y_train, eval_set=(X_valid, y_valid), cat_features=[], use_best_model=True,
                       verbose=False)
 
-            y_pred_valid = model.predict(X_valid)
+            y_pred_valid = model.predict_proba(X_valid)
             if X_test is not None:
-                y_pred = model.predict(X_test)
+                y_pred = model.predict_proba(X_test)
 
         if averaging == 'usual':
 
