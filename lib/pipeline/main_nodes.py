@@ -145,7 +145,8 @@ class LabelEncoderNode(Node):
 class DownsamplingTrainNode(Node):
     params = {
         'random_state': 12,
-        'strategy': 'equalize'
+        'strategy': 'equalize',
+        'desired_size': None
     }
 
     def _run(self):
@@ -157,7 +158,7 @@ class DownsamplingTrainNode(Node):
         if self.params['strategy'] == 'equalize':
             desired_size = train_pos.shape[0]
         else:
-            raise NotImplementedError
+            desired_size = self.params['desired_size']
 
         train_neg = train_neg.sample(desired_size, random_state=self.params['random_state'])
 
