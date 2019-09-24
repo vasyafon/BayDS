@@ -663,11 +663,35 @@ class AddTemporalAggregates(Node):
     }
 
     def _run(self):
+        data = self.input[0]
+        num_cols = self.input[1]
+        cat_cols = self.input[2]
+        group_by_feature = self.params['group_by']
+
+        # Fixing same data timestamps for same card_id
+        check_data = data.reset_index().set_index([group_by_feature, 'Date'])
+        duplicate_transactions = check_data[check_data.index.duplicated()]['TransactionID'].values
+        while len(duplicate_transactions) > 0:
+            print(f"Found {len(duplicate_transactions)} duplicate transactions")
+            for itid, tid in enumerate(duplicate_transactions):
+                print(itid)
+                q = data.loc[tid]
+                date = q['Date']
+                card_id = q[group_by_feature]
+                alldup = data[data['Date'] == date]
+                alldup = alldup[alldup[group_by_feature] == card_id]
+                #     print(alldup.index)
+                for it, idx in enumerate(alldup.index):
+                    #         print(idx)
+                    data.loc[idx, 'Date'] += pd.Timedelta(seconds=it)
+            check_data = data.reset_index().set_index([group_by_feature, 'Date'])
+            duplicate_transactions = check_data[check_data.index.duplicated()]['TransactionID'].values
+        #     print(data.loc[alldup.index])
+        #     break
+
         with mp.Pool() as Pool:
-            data = self.input[0]
-            num_cols = self.input[1]
-            cat_cols = self.input[2]
-            group_by_feature = self.params['group_by']
+
+
             self.output = pd.DataFrame(index=data.index)
             for nf in self.params['features']:
                 if nf not in data.columns:
@@ -679,7 +703,9 @@ class AddTemporalAggregates(Node):
                 m = Pool.imap(aggregate_with_time_local, args)
                 for i, df_agg in enumerate(m):
                     print('.')
+                    assert df.shape[0] == df_agg.shape[0]
                     df = pd.concat([df, df_agg], axis=1)
+
                 #         df = pd.concat(m, axis=1)
                 #         df['TransactionID'] = data_slice['TransactionID']
                 #         df.set_index('TransactionID')
