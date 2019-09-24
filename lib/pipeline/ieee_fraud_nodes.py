@@ -67,7 +67,7 @@ class TimeTransformNode(Node):
         startdate = datetime.datetime.strptime(START_DATE, "%Y-%m-%d")
 
         dataset = self.input
-        dataset["Date"] = dataset['Transaction  DT'].apply(lambda x: (startdate + datetime.timedelta(seconds=x)))
+        dataset["Date"] = dataset['TransactionDT'].apply(lambda x: (startdate + datetime.timedelta(seconds=x)))
         dataset['Weekdays'] = dataset['Date'].dt.dayofweek
         dataset['Hours'] = dataset['Date'].dt.hour
         dataset['Days'] = dataset['Date'].dt.day
@@ -149,8 +149,8 @@ class SomeAggregatesFromAnyaNode(Node):
             dataframe['browser_id_31'] = dataframe['id_31'].str.split(' ', expand=True)[0].astype(str)
             dataframe['version_id_31'] = dataframe['id_31'].str.split(' ', expand=True)[1].astype(str)
 
-            dataframe['screen_width'] = dataframe['id_33'].str.split('x', expand=True)[0].astype(str)
-            dataframe['screen_height'] = dataframe['id_33'].str.split('x', expand=True)[1].astype(str)
+            dataframe['screen_width'] = dataframe['id_33'].str.split('x', expand=True)[0].astype(np.int32)
+            dataframe['screen_height'] = dataframe['id_33'].str.split('x', expand=True)[1].astype(np.int32)
 
             dataframe['id_34'] = dataframe['id_34'].str.split(':', expand=True)[1].astype(str)
             dataframe['id_23'] = dataframe['id_23'].str.split(':', expand=True)[1].astype(str)
@@ -655,6 +655,113 @@ class AddCardIdNode(Node):
         data['card_id'] = L.transform(data['card_id'])
         cat_cols.append('card_id')
 
+class AddNewCardIdNode(Node):
+    def _run(self):
+        data: pd.DataFrame = self.input[0]
+        num_cols = self.input[1]
+        cat_cols = self.input[2]
+
+        df = data
+        # df.card_id.value_counts()
+
+        from datetime import datetime, timedelta
+        from typing import NamedTuple, List, Dict, Set
+        class User(object):
+            user_id: int
+            card_id: str
+            start_date: datetime
+            last_transaction_date: datetime
+            transaction_ids: List[str]
+
+            def __init__(self, **kwargs):
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
+
+            def __repr__(self):
+                return str(self.__dict__)
+
+        users = []
+        users_by_card_id_by_first_date: Dict[int, Dict[datetime, User]] = {}
+
+        START_DATE = '1900-12-01'
+        nan_startdate = datetime.strptime(START_DATE, "%Y-%m-%d")
+
+        START_DATE = '1950-12-01'
+        zero_startdate = datetime.strptime(START_DATE, "%Y-%m-%d")
+
+        percentage = 0
+        for card_id in df.card_id.value_counts().index:
+            new_percentage = card_id * 100 // 19213
+            if new_percentage > percentage:
+                percentage = new_percentage
+                if percentage % 5 == 0:
+                    print(f'{percentage}%')
+            user_df = df[df.card_id == card_id]
+            D_cols = ['D%d' % i for i in range(1, 5)]
+            filtered = user_df[['Date'] + D_cols]
+            #     filtered['diff'] = filtered.Date.diff()
+            for index, row in filtered.iterrows():
+                dt = row['Date'].date()
+                if pd.isnull(row['D1']):
+                    first_transaction_date = nan_startdate
+                    days_since_first_transaction = (dt - nan_startdate.date()).days
+                else:
+                    days_since_first_transaction = int(row['D1'])
+                    if days_since_first_transaction == 0:
+                        first_transaction_date = zero_startdate
+                    else:
+                        first_transaction_date = dt - timedelta(days=days_since_first_transaction)
+                create_new = False
+                if card_id not in users_by_card_id_by_first_date:
+                    users_by_card_id_by_first_date[card_id] = {}
+                    create_new = True
+                else:
+                    if first_transaction_date not in users_by_card_id_by_first_date[card_id]:
+                        create_new = True
+                    else:
+                        u = users_by_card_id_by_first_date[card_id][first_transaction_date]
+                        u.last_transaction_date = dt
+                        u.transaction_ids.append(index)
+                if create_new:
+                    u = User(user_id=len(users),
+                             card_id=card_id,
+                             start_date=first_transaction_date,
+                             last_transaction_date=dt,
+                             transaction_ids=[index])
+                    users.append(u)
+                    users_by_card_id_by_first_date[card_id][first_transaction_date] = u
+
+        l = len(users)
+
+        index_to_new_card_id = {}
+        index_to_new_start_date = {}
+        percentage = 0
+        for i, u in enumerate(users):
+            new_percentage = i * 100 // l
+            if new_percentage > percentage:
+                percentage = new_percentage
+                if percentage % 5 == 0:
+                    print(f'{percentage}%')
+            #     df_new_card_id.loc[u.transaction_ids,'new_cardId'] = u.user_id
+            #     df_start_date.loc[u.transaction_ids,'start_date'] = u.start_date
+            for idx in u.transaction_ids:
+                index_to_new_card_id[idx] = u.user_id
+                index_to_new_start_date[idx] = u.start_date
+
+        new_card_id = np.zeros(len(df.index), dtype=np.int32)
+        start_date = np.zeros(len(df.index), dtype='datetime64[ms]')
+        for i, idx in enumerate(df.index):
+            if idx not in index_to_new_card_id:
+                print(f'Not Found {idx}')
+                continue
+            new_card_id[i] = index_to_new_card_id[idx]
+            start_date[i] = index_to_new_start_date[idx]
+
+        df['new_card_id'] = new_card_id
+        df['start_date'] = start_date
+        # df[['new_card_id', 'start_date']].to_pickle(f'{p.working_folder}/new_id.pkl')
+        cat_cols.append('new_card_id')
+        num_cols.append('start_date')
 
 class AddTemporalAggregates(Node):
     params = {
@@ -712,3 +819,46 @@ class AddTemporalAggregates(Node):
                 self.output = self.output.join(df)
                 num_cols.extend(list(df.columns))
         #         break
+
+class CorrectScreenWidthHeightTypeNode(Node):
+    def _run(self):
+        data = self.input
+        data['screen_width'] = data['screen_width'].fillna(np.NaN).astype(np.float16)
+        data['screen_height'] = data['screen_height'].replace('None',np.NaN).astype(np.float16)
+
+class FindUselessForTrainingFeaturesNode(Node):
+    params = {
+        'threshold': 0.05
+    }
+
+    def _run(self):
+        from sklearn.preprocessing import StandardScaler
+        data = self.input
+        train_ids = data[data.isFraud >= 0].index
+        test_ids = data[data.isFraud < 0].index
+        scaler = StandardScaler()
+        feature_skew = {}
+        for col in data.columns:
+            if col in feature_skew:
+                continue
+            data_col = data[col].replace(np.inf, np.NaN).dropna()
+            normalized_data = pd.DataFrame(index=data_col.index)
+            try:
+                normalized_data['data'] = scaler.fit_transform(data_col.values.reshape((-1, 1)))
+            except ValueError as ex:
+                print(f'Error in {col}')
+                feature_skew[col] = None
+                continue
+            train_col = normalized_data['data'].reindex(train_ids).dropna()
+            test_col = normalized_data['data'].reindex(test_ids).dropna()
+
+            train_avg = train_col.mean()
+            test_avg = test_col.mean()
+            # print(col, abs(test_avg))
+            feature_skew[col] = abs(test_avg)
+        bad_for_training_features = []
+        for k, v in feature_skew.items():
+            if np.isnan(v) or v > self.params['threshold']:
+                bad_for_training_features.append(k)
+
+        self.output = bad_for_training_features

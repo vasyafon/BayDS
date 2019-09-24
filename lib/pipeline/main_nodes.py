@@ -157,9 +157,10 @@ class DownsamplingTrainNode(Node):
 
         if self.params['strategy'] == 'equalize':
             desired_size = train_pos.shape[0]
-        else:
+        elif self.params['strategy'] == 'desired_size':
             desired_size = self.params['desired_size']
-
+        elif self.params['strategy'] == 'reduction_factor':
+            desired_size = int(train_neg.shape[0] * self.params['reduction_factor'])
         train_neg = train_neg.sample(desired_size, random_state=self.params['random_state'])
 
         self.output = pd.concat([train_pos, train_neg]).sort_index()
