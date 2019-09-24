@@ -84,8 +84,14 @@ class Pipeline(object):
         self.add_node(node, input_key, output_key, params)
         self.run_step(verbose=verbose)
 
-    def save_data(self, format='pickle', dict_format='yaml', verbose=True):
-        for k, df in self.data.items():
+    def save_data(self, format='pickle', dict_format='yaml', verbose=True, only_keys=None):
+
+        if only_keys is None:
+            keys = self.data.keys()
+        else:
+            keys = only_keys
+        for k in keys:
+            df = self.data[k]
             if verbose:
                 print(f'Saving {k}')
             if isinstance(df, pd.DataFrame):

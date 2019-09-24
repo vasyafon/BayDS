@@ -149,8 +149,8 @@ class SomeAggregatesFromAnyaNode(Node):
             dataframe['browser_id_31'] = dataframe['id_31'].str.split(' ', expand=True)[0].astype(str)
             dataframe['version_id_31'] = dataframe['id_31'].str.split(' ', expand=True)[1].astype(str)
 
-            dataframe['screen_width'] = dataframe['id_33'].str.split('x', expand=True)[0].astype(str)
-            dataframe['screen_height'] = dataframe['id_33'].str.split('x', expand=True)[1].astype(str)
+            dataframe['screen_width'] = dataframe['id_33'].str.split('x', expand=True)[0].astype(np.int32)
+            dataframe['screen_height'] = dataframe['id_33'].str.split('x', expand=True)[1].astype(np.int32)
 
             dataframe['id_34'] = dataframe['id_34'].str.split(':', expand=True)[1].astype(str)
             dataframe['id_23'] = dataframe['id_23'].str.split(':', expand=True)[1].astype(str)
@@ -686,3 +686,46 @@ class AddTemporalAggregates(Node):
                 self.output = self.output.join(df)
                 num_cols.extend(list(df.columns))
         #         break
+
+class CorrectScreenWidthHeightTypeNode(Node):
+    def _run(self):
+        data = self.input
+        data['screen_width'] = data['screen_width'].fillna(np.NaN).astype(np.float16)
+        data['screen_height'] = data['screen_height'].replace('None',np.NaN).astype(np.float16)
+
+class FindUselessForTrainingFeaturesNode(Node):
+    params = {
+        'threshold': 0.05
+    }
+
+    def _run(self):
+        from sklearn.preprocessing import StandardScaler
+        data = self.input
+        train_ids = data[data.isFraud >= 0].index
+        test_ids = data[data.isFraud < 0].index
+        scaler = StandardScaler()
+        feature_skew = {}
+        for col in data.columns:
+            if col in feature_skew:
+                continue
+            data_col = data[col].replace(np.inf, np.NaN).dropna()
+            normalized_data = pd.DataFrame(index=data_col.index)
+            try:
+                normalized_data['data'] = scaler.fit_transform(data_col.values.reshape((-1, 1)))
+            except ValueError as ex:
+                print(f'Error in {col}')
+                feature_skew[col] = None
+                continue
+            train_col = normalized_data['data'].reindex(train_ids).dropna()
+            test_col = normalized_data['data'].reindex(test_ids).dropna()
+
+            train_avg = train_col.mean()
+            test_avg = test_col.mean()
+            # print(col, abs(test_avg))
+            feature_skew[col] = abs(test_avg)
+        bad_for_training_features = []
+        for k, v in feature_skew.items():
+            if np.isnan(v) or v > self.params['threshold']:
+                bad_for_training_features.append(k)
+
+        self.output = bad_for_training_features
