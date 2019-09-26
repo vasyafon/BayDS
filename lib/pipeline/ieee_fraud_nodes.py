@@ -6,7 +6,7 @@ import numpy as np
 import os
 from sklearn import preprocessing
 from ..encoding import LabelEncoderPopularity
-from ..aggregations.temporal import aggregate_with_time_local
+from ..aggregations.temporal import aggregate_with_time_local, aggregate_transaction_frequencies
 import multiprocess as mp
 
 
@@ -655,6 +655,7 @@ class AddCardIdNode(Node):
         data['card_id'] = L.transform(data['card_id'])
         cat_cols.append('card_id')
 
+
 class AddNewCardIdNode(Node):
     def _run(self):
         data: pd.DataFrame = self.input[0]
@@ -763,6 +764,7 @@ class AddNewCardIdNode(Node):
         cat_cols.append('new_card_id')
         num_cols.append('start_date')
 
+
 class AddTemporalAggregates(Node):
     params = {
         'features': [],
@@ -798,7 +800,6 @@ class AddTemporalAggregates(Node):
 
         with mp.Pool() as Pool:
 
-
             self.output = pd.DataFrame(index=data.index)
             for nf in self.params['features']:
                 if nf not in data.columns:
@@ -820,11 +821,68 @@ class AddTemporalAggregates(Node):
                 num_cols.extend(list(df.columns))
         #         break
 
+
+class AddTransactionFrequenciesNode(Node):
+    params = {
+        'group_by': 'new_card_id'
+    }
+
+    def _run(self):
+        data = self.input[0]
+        num_cols = self.input[1]
+        cat_cols = self.input[2]
+        group_by_feature = self.params['group_by']
+
+        # Fixing same data timestamps for same card_id
+
+        check_data = data.reset_index().set_index([group_by_feature, 'Date'])
+        duplicate_transactions = check_data[check_data.index.duplicated()]['TransactionID'].values
+        while len(duplicate_transactions) > 0:
+            print(f"Found {len(duplicate_transactions)} duplicate transactions")
+            for itid, tid in enumerate(duplicate_transactions):
+                print(itid)
+                q = data.loc[tid]
+                date = q['Date']
+                card_id = q[group_by_feature]
+                alldup = data[data['Date'] == date]
+                alldup = alldup[alldup[group_by_feature] == card_id]
+                #     print(alldup.index)
+                for it, idx in enumerate(alldup.index):
+                    #         print(idx)
+                    data.loc[idx, 'Date'] += pd.Timedelta(seconds=it)
+            check_data = data.reset_index().set_index([group_by_feature, 'Date'])
+            duplicate_transactions = check_data[check_data.index.duplicated()]['TransactionID'].values
+        #     print(data.loc[alldup.index])
+        #     break
+
+        with mp.Pool() as Pool:
+            self.output = pd.DataFrame(index=data.index)
+            df = pd.DataFrame(index=data.index)
+            data_slice = data[['Date', group_by_feature]].reset_index()
+
+            data_slice.loc[:, 'hours'] = (data_slice.Date - data_slice.Date.iloc[0]).dt.total_seconds() / 3600
+
+            args = [(data_slice, group_by_feature, ws) for ws in ['1d', '2d', '3d', '7d', '30d', 5, 10, 100]]
+            m = Pool.imap(aggregate_transaction_frequencies, args)
+            for i, df_agg in enumerate(m):
+                print('.')
+                assert df.shape[0] == df_agg.shape[0]
+                df = pd.concat([df, df_agg], axis=1)
+
+            #         df = pd.concat(m, axis=1)
+            #         df['TransactionID'] = data_slice['TransactionID']
+            #         df.set_index('TransactionID')
+            self.output = self.output.join(df)
+            num_cols.extend(list(df.columns))
+    #         break
+
+
 class CorrectScreenWidthHeightTypeNode(Node):
     def _run(self):
         data = self.input
         data['screen_width'] = data['screen_width'].fillna(np.NaN).astype(np.float16)
-        data['screen_height'] = data['screen_height'].replace('None',np.NaN).astype(np.float16)
+        data['screen_height'] = data['screen_height'].replace('None', np.NaN).astype(np.float16)
+
 
 class FindUselessForTrainingFeaturesNode(Node):
     params = {

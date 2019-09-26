@@ -16,3 +16,25 @@ def aggregate_with_time_local(args):
     df[f'{num_feature}_by_{group_column}_ws{window_size}_to_std'] = to_std
     return df
 
+
+def transaction_velocity_agg(x):
+    return (x - x.iloc[0]).mean()
+
+
+def aggregate_transaction_frequencies(args):
+    data_slice, group_column, window_size = args
+
+    ds = data_slice.set_index([group_column, 'Date'])
+
+    gb = data_slice.groupby([group_column])
+    q = gb.rolling(window_size, on='Date', min_periods=1, center=False)['hours'].agg(transaction_velocity_agg)
+    ds[f'Transaction_freq_{window_size}_past'] = q
+
+    if isinstance(window_size, int):
+        qc = gb.rolling(window_size, on='Date', min_periods=1, center=True)['hours'].agg(transaction_velocity_agg)
+        ds[f'Transaction_freq_{window_size}_center'] = qc
+
+    ds = ds.drop(['hours'], axis=1)
+
+    ds = ds.set_index('TransactionID').sort_index()
+    return ds
