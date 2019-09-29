@@ -6,7 +6,7 @@ import numpy as np
 import os
 from sklearn import preprocessing
 from ..encoding import LabelEncoderPopularity
-from ..aggregations.temporal import aggregate_with_time_local
+from ..aggregations.temporal import aggregate_with_time_local, aggregate_transaction_frequencies
 import multiprocess as mp
 
 
@@ -193,7 +193,7 @@ class AnyaNewFENode(Node):
             le.fit(list(data[feature].astype(str).values))
             data[feature] = le.transform(list(data[feature].astype(str).values))
 
-        # ОБНАНИВАНИЕ И RARE CARD
+        # ??????????? ? RARE CARD
         train_df = data[data['isFraud'] != -1]
         test_df = data[data['isFraud'] == -1]
 
@@ -245,7 +245,27 @@ class AnyaNewFENode(Node):
 
         data['product_type'] = data['ProductCD'].astype(str) + '_' + data['TransactionAmt'].astype(str)
 
+        for col in ['ProductCD', 'M4']:
+            temp_dict = data.groupby([col])['isFraud'].agg(['mean']).reset_index().rename(
+                columns={'mean': col + '_target_mean'})
+            temp_dict.index = temp_dict[col].values
+            temp_dict = temp_dict[col + '_target_mean'].to_dict()
+
+            data[col + '_target_mean'] = data[col].map(temp_dict)
+
         self.output = data
+
+class AnyaFinalFENode(Node):
+    def _run(self):
+        data = self.input
+
+        for col in "card1,card2,card5,addr1,addr2".split(","):
+            col_count = data.groupby(col)['TransactionAmt'].mean()
+            data[col + '_amtcount'] = data[col].map(col_count)
+            col_count1 = data[data['C5'] == 0].groupby(col)['C5'].count()
+            col_count2 = data[data['C5'] != 0].groupby(col)['C5'].count()
+            data[col + '_C5count'] = data[col].map(col_count2) / (data[col].map(col_count1) + 0.01)
+
 
 class SomeAggregatesFromAnyaNode(Node):
     def _run(self):
@@ -792,7 +812,7 @@ class AddAggregatesTotalNode(Node):
         self.output = [data, num_cols, cat_cols]
 
 
-    class AddGroupNumericalAggregatesNode(Node):
+class AddGroupNumericalAggregatesNode(Node):
     params = {
         'features': [],
         'group_by': ['new_card_id'],
@@ -1389,6 +1409,61 @@ class AddTemporalAggregates(Node):
         #         break
 
 
+class AddTransactionFrequenciesNode(Node):
+    params = {
+        'group_by': 'new_card_id'
+    }
+
+    def _run(self):
+        data = self.input[0]
+        num_cols = self.input[1]
+        cat_cols = self.input[2]
+        group_by_feature = self.params['group_by']
+
+        # Fixing same data timestamps for same card_id
+
+        check_data = data.reset_index().set_index([group_by_feature, 'Date'])
+        duplicate_transactions = check_data[check_data.index.duplicated()]['TransactionID'].values
+        while len(duplicate_transactions) > 0:
+            print(f"Found {len(duplicate_transactions)} duplicate transactions")
+            for itid, tid in enumerate(duplicate_transactions):
+                print(itid)
+                q = data.loc[tid]
+                date = q['Date']
+                card_id = q[group_by_feature]
+                alldup = data[data['Date'] == date]
+                alldup = alldup[alldup[group_by_feature] == card_id]
+                #     print(alldup.index)
+                for it, idx in enumerate(alldup.index):
+                    #         print(idx)
+                    data.loc[idx, 'Date'] += pd.Timedelta(seconds=it)
+            check_data = data.reset_index().set_index([group_by_feature, 'Date'])
+            duplicate_transactions = check_data[check_data.index.duplicated()]['TransactionID'].values
+        #     print(data.loc[alldup.index])
+        #     break
+
+        with mp.Pool() as Pool:
+            self.output = pd.DataFrame(index=data.index)
+            df = pd.DataFrame(index=data.index)
+            data_slice = data[['Date', group_by_feature]].reset_index()
+
+            data_slice.loc[:, 'hours'] = (data_slice.Date - data_slice.Date.iloc[0]).dt.total_seconds() / 3600
+
+            args = [(data_slice, group_by_feature, ws) for ws in ['1d', '2d', '3d', '7d', '30d', 5, 10, 100]]
+            m = Pool.imap(aggregate_transaction_frequencies, args)
+            for i, df_agg in enumerate(m):
+                print('.')
+                assert df.shape[0] == df_agg.shape[0]
+                df = pd.concat([df, df_agg], axis=1)
+
+            #         df = pd.concat(m, axis=1)
+            #         df['TransactionID'] = data_slice['TransactionID']
+            #         df.set_index('TransactionID')
+            self.output = self.output.join(df)
+            num_cols.extend(list(df.columns))
+    #         break
+
+
 class CorrectScreenWidthHeightTypeNode(Node):
     def _run(self):
         data = self.input
@@ -1398,7 +1473,8 @@ class CorrectScreenWidthHeightTypeNode(Node):
 
 class FindUselessForTrainingFeaturesNode(Node):
     params = {
-        'threshold': 0.05
+        'threshold': 0.2,
+        'features': []
     }
 
     def _run(self):
@@ -1408,7 +1484,8 @@ class FindUselessForTrainingFeaturesNode(Node):
         test_ids = data[data.isFraud < 0].index
         scaler = StandardScaler()
         feature_skew = {}
-        for col in data.columns:
+        for col in self.params['features']:
+
             if col in feature_skew:
                 continue
             data_col = data[col].replace(np.inf, np.NaN).dropna()
@@ -1424,11 +1501,11 @@ class FindUselessForTrainingFeaturesNode(Node):
 
             train_avg = train_col.mean()
             test_avg = test_col.mean()
-            # print(col, abs(test_avg))
+            print(col, abs(test_avg))
             feature_skew[col] = abs(test_avg)
         bad_for_training_features = []
         for k, v in feature_skew.items():
-            if np.isnan(v) or v > self.params['threshold']:
+            if v is None or np.isnan(v) or v > self.params['threshold']:
                 bad_for_training_features.append(k)
 
         self.output = bad_for_training_features

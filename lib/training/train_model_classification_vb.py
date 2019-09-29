@@ -168,11 +168,10 @@ def train_model_classification_vb(X, X_test, y, params, folds, model_type='lgb',
                 y_pred = kmodel.predict(X_test)
 
         if model_type == 'cat':
-            model = CatBoostClassifier(iterations=n_estimators,
-                                       eval_metric=metrics_dict[eval_metric]['catboost_metric_name'], **params,
-                                       loss_function=metrics_dict[eval_metric]['catboost_metric_name'])
-            model.fit(X_train, y_train, eval_set=(X_valid, y_valid), cat_features=categorial_columns, use_best_model=True,
-                      verbose=False)
+            model = CatBoostClassifier(iterations=n_estimators, **params)
+            model.fit(X_train, y_train, eval_set=(X_valid, y_valid), cat_features=categorial_columns,
+                      use_best_model=True,
+                      verbose=True)
 
             y_pred_valid = model.predict_proba(X_valid)[:, 1]
             if X_test is not None:
@@ -199,7 +198,6 @@ def train_model_classification_vb(X, X_test, y, params, folds, model_type='lgb',
             fold_importance["importance"] = model.feature_importances_
             fold_importance["fold"] = fold_n + 1
             feature_importance = pd.concat([feature_importance, fold_importance], axis=0)
-
 
     if X_test is not None:
         prediction /= n_splits
