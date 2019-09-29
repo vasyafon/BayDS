@@ -88,7 +88,7 @@ def train_model_classification(X, X_test, y, params, folds, model_type='lgb', ev
     :params: model_type - type of model to use
     :params: eval_metric - metric to use
     :params: columns - columns to use. If None - use all columns
-    :params: plot_feature_importance - whether to plot feature importance of LGB
+    :params: plot_feature_importance - whether to   plot feature importance of LGB
     :params: model - sklearn model, works only for "sklearn" model type
 
     """

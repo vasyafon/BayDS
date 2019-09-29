@@ -1,4 +1,4 @@
-from typing import List, Set, Dict, Optional, Any
+from typing import List, Set, Dict, Optional, Any, Union
 import enum
 import pandas as pd
 import abc
@@ -9,8 +9,8 @@ class Node(object):
     # has_input_df: bool = False
     # has_output_df: bool = False
     generated_files: Set[str] = set()
-    input: pd.DataFrame = None
-    output: pd.DataFrame = None
+    input: Union[pd.DataFrame, dict, list] = None
+    output: Union[pd.DataFrame, dict, list] = None
     save_output: bool = True
     params: Dict[str, Any] = {}
 

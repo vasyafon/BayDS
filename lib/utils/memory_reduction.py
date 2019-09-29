@@ -16,7 +16,7 @@ def sd(col, max_loss_limit=0.001, avg_loss_limit=0.001, na_loss_limit=0, n_uniq_
     try_types = ['float16', 'float32']
 
     if na_count == 0:
-        try_types = ['int8', 'int16', 'float16', 'int32', 'float32']
+        try_types = ['int8', 'int16', 'int32', 'float32']
 
     for type in try_types:
         col_tmp = col

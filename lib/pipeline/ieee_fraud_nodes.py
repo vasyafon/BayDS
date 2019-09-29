@@ -63,23 +63,189 @@ class TimeTransformNode(Node):
     '''
 
     def _run(self):
+        from pandas.tseries.holiday import USFederalHolidayCalendar as calendar
         START_DATE = '2017-12-01'
         startdate = datetime.datetime.strptime(START_DATE, "%Y-%m-%d")
 
-        dataset = self.input
-        dataset["Date"] = dataset['TransactionDT'].apply(lambda x: (startdate + datetime.timedelta(seconds=x)))
-        dataset['Weekdays'] = dataset['Date'].dt.dayofweek
-        dataset['Hours'] = dataset['Date'].dt.hour
-        dataset['Days'] = dataset['Date'].dt.day
+        data = self.input
+        data["Date"] = data['TransactionDT'].apply(lambda x: (startdate + datetime.timedelta(seconds=x)))
+        data['Weekdays'] = data['Date'].dt.dayofweek
+        data['Hours'] = data['Date'].dt.hour
+        data['Days'] = data['Date'].dt.day
 
         # Taken from Anna Notebook
-        dataset['isNight'] = dataset['Hours'].map(lambda x: 1 if (x >= 23 or x < 5) else 0)
-        dataset['DT_M'] = (dataset['Date'].dt.year - 2017) * 12 + dataset['Date'].dt.month
-        dataset['DT_W'] = (dataset['Date'].dt.year - 2017) * 52 + dataset['Date'].dt.weekofyear
-        dataset['DT_D'] = (dataset['Date'].dt.year - 2017) * 365 + dataset['Date'].dt.dayofyear
+        data['isNight'] = data['Hours'].map(lambda x: 1 if (x >= 23 or x < 5) else 0)
+        data['DT_M'] = (data['Date'].dt.year - 2017) * 12 + data['Date'].dt.month
+        data['DT_W'] = (data['Date'].dt.year - 2017) * 52 + data['Date'].dt.weekofyear
+        data['DT_D'] = (data['Date'].dt.year - 2017) * 365 + data['Date'].dt.dayofyear
 
+        data['is_december'] = data['Date'].dt.month
+        data['is_december'] = (data['is_december'] == 12).astype(np.int8)
         # dataset.drop(['TransactionDT'], axis=1, inplace=True)
 
+        dates_range = pd.date_range(start='2017-10-01', end='2019-01-01')
+        us_holidays = calendar().holidays(start=dates_range.min(), end=dates_range.max())
+
+        data['is_holiday'] = (data['Date'].dt.date.astype('datetime64').isin(us_holidays)).astype(np.int8)
+
+
+class AnyaNewFENode(Node):
+    def _run(self):
+        data = self.input
+        data['TransactionAmt_Log'] = np.log(data['TransactionAmt'])
+        data['TransactionAmt_Log1p'] = np.log1p(data['TransactionAmt'])
+        data['TransactionAmt'] = data['TransactionAmt'].clip(0, 5000)
+        data['TransactionAmt_decimal'] = ((data['TransactionAmt'] - data['TransactionAmt'].astype(int)) * 1000).astype(
+            int)
+        data['nulls1'] = data.isna().sum(axis=1)
+
+        # Transform D pipeline
+        for col in ['D' + str(i) for i in range(1, 16)]:
+            data[col] = data[col].clip(0)
+
+        data['D9_not_na'] = np.where(data['D9'].isna(), 0, 1)
+        data['D8_not_same_day'] = np.where(data['D8'] >= 1, 1, 0)
+        data['D8_D9_decimal_dist'] = data['D8'].fillna(0) - data['D8'].fillna(0).astype(int)
+        data['D8_D9_decimal_dist'] = np.abs(data['D8_D9_decimal_dist'] - data['D9'])
+        data['D8'] = data['D8'].fillna(-1).astype(int)
+
+        for col in ['D1', 'D2']:
+            data[col + '_scaled'] = data[col] / data[data['isFraud'] != -1][col].max()
+
+        # Other stuff
+        data['M_sum'] = data[['M1', 'M2', 'M3', 'M5', 'M6', 'M7', 'M8', 'M9']].sum(axis=1).astype(np.int8)
+        data['M_na'] = data[['M1', 'M2', 'M3', 'M5', 'M6', 'M7', 'M8', 'M9']].isna().sum(axis=1).astype(np.int8)
+
+        a = np.zeros(data.shape[0])
+        data["lastest_browser"] = a
+
+        def browser(df):
+            df.loc[df["id_31"] == "samsung browser 7.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "opera 53.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "mobile safari 10.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "google search application 49.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "firefox 60.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "edge 17.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 69.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 67.0 for android", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 63.0 for android", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 63.0 for ios", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 64.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 64.0 for android", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 64.0 for ios", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 65.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 65.0 for android", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 65.0 for ios", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 66.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 66.0 for android", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 66.0 for ios", 'lastest_browser'] = 1
+            return df
+
+        browser(data)
+
+        def id_split(dataframe):
+            dataframe['device_name'] = dataframe['DeviceInfo'].str.split('/', expand=True)[0].astype(str)
+            dataframe['device_version'] = dataframe['DeviceInfo'].str.split('/', expand=True)[1].astype(str)
+
+            dataframe['OS_id_30'] = dataframe['id_30'].str.split(' ', expand=True)[0].astype(str)
+            dataframe['version_id_30'] = dataframe['id_30'].str.split(' ', expand=True)[1].astype(str)
+
+            dataframe['browser_id_31'] = dataframe['id_31'].str.split(' ', expand=True)[0].astype(str)
+            dataframe['version_id_31'] = dataframe['id_31'].str.split(' ', expand=True)[1].astype(str)
+
+            dataframe['screen_width'] = dataframe['id_33'].str.split('x', expand=True)[0].astype(np.int32)
+            dataframe['screen_height'] = dataframe['id_33'].str.split('x', expand=True)[1].astype(np.int32)
+
+            dataframe['id_34'] = dataframe['id_34'].str.split(':', expand=True)[1].astype(str)
+            dataframe['id_23'] = dataframe['id_23'].str.split(':', expand=True)[1].astype(str)
+
+            dataframe.loc[dataframe['device_name'].str.contains('SM', na=False), 'device_name'] = 'Samsung'
+            dataframe.loc[dataframe['device_name'].str.contains('SAMSUNG', na=False), 'device_name'] = 'Samsung'
+            dataframe.loc[dataframe['device_name'].str.contains('GT-', na=False), 'device_name'] = 'Samsung'
+            dataframe.loc[dataframe['device_name'].str.contains('Moto G', na=False), 'device_name'] = 'Motorola'
+            dataframe.loc[dataframe['device_name'].str.contains('Moto', na=False), 'device_name'] = 'Motorola'
+            dataframe.loc[dataframe['device_name'].str.contains('moto', na=False), 'device_name'] = 'Motorola'
+            dataframe.loc[dataframe['device_name'].str.contains('LG-', na=False), 'device_name'] = 'LG'
+            dataframe.loc[dataframe['device_name'].str.contains('rv:', na=False), 'device_name'] = 'RV'
+            dataframe.loc[dataframe['device_name'].str.contains('HUAWEI', na=False), 'device_name'] = 'Huawei'
+            dataframe.loc[dataframe['device_name'].str.contains('ALE-', na=False), 'device_name'] = 'Huawei'
+            dataframe.loc[dataframe['device_name'].str.contains('-L', na=False), 'device_name'] = 'Huawei'
+            dataframe.loc[dataframe['device_name'].str.contains('Blade', na=False), 'device_name'] = 'ZTE'
+            dataframe.loc[dataframe['device_name'].str.contains('BLADE', na=False), 'device_name'] = 'ZTE'
+            dataframe.loc[dataframe['device_name'].str.contains('Linux', na=False), 'device_name'] = 'Linux'
+            dataframe.loc[dataframe['device_name'].str.contains('XT', na=False), 'device_name'] = 'Sony'
+            dataframe.loc[dataframe['device_name'].str.contains('HTC', na=False), 'device_name'] = 'HTC'
+            dataframe.loc[dataframe['device_name'].str.contains('ASUS', na=False), 'device_name'] = 'Asus'
+
+            dataframe.loc[dataframe.device_name.isin(dataframe.device_name.value_counts()[
+                                                         dataframe.device_name.value_counts() < 200].index), 'device_name'] = "Others"
+            dataframe['had_id'] = 1
+            gc.collect()
+
+        # Some arbitrary features interaction
+        for feature in ['id_02__id_20', 'id_02__D8', 'D11__DeviceInfo', 'DeviceInfo__P_emaildomain',
+                        'P_emaildomain__C2',
+                        'card2__dist1', 'card1__card5', 'card2__id_20', 'card5__P_emaildomain', 'addr1__card1']:
+            f1, f2 = feature.split('__')
+            data[feature] = data[f1].astype(str) + '_' + data[f2].astype(str)
+
+            le = preprocessing.LabelEncoder()
+            le.fit(list(data[feature].astype(str).values))
+            data[feature] = le.transform(list(data[feature].astype(str).values))
+
+        # ОБНАНИВАНИЕ И RARE CARD
+        train_df = data[data['isFraud'] != -1]
+        test_df = data[data['isFraud'] == -1]
+
+        for col in ['card1']:
+            valid_card = data[[col]]  # pd.concat([train_df[[col]], test_df[[col]]])
+            valid_card = valid_card[col].value_counts()
+            valid_card_std = valid_card.values.std()
+
+            invalid_cards = valid_card[valid_card <= 2]
+
+            valid_card = valid_card[valid_card > 2]
+            valid_card = list(valid_card.index)
+
+            train_df[col] = np.where(train_df[col].isin(test_df[col]), train_df[col], np.nan)
+            test_df[col] = np.where(test_df[col].isin(train_df[col]), test_df[col], np.nan)
+
+            train_df[col] = np.where(train_df[col].isin(valid_card), train_df[col], np.nan)
+            test_df[col] = np.where(test_df[col].isin(valid_card), test_df[col], np.nan)
+
+        for col in ['card2', 'card3', 'card4', 'card5', 'card6', ]:
+            print('No intersection in Train', col, len(train_df[~train_df[col].isin(test_df[col])]))
+            print('Intersection in Train', col, len(train_df[train_df[col].isin(test_df[col])]))
+
+            train_df[col] = np.where(train_df[col].isin(test_df[col]), train_df[col], np.nan)
+            test_df[col] = np.where(test_df[col].isin(train_df[col]), test_df[col], np.nan)
+
+        train_df['TransactionAmt_check'] = np.where(train_df['TransactionAmt'].isin(test_df['TransactionAmt']), 1, 0)
+        test_df['TransactionAmt_check'] = np.where(test_df['TransactionAmt'].isin(train_df['TransactionAmt']), 1, 0)
+
+        for df in [train_df, test_df]:
+            for col in ['C' + str(i) for i in range(1, 15)]:
+                max_value = train_df[train_df['DT_M'] == train_df['DT_M'].max()][col].max()
+                df[col] = df[col].clip(None, max_value)
+
+        data = pd.concat([train_df, test_df])
+
+        # MAKE UIDS
+        data['uid'] = data['card1'].astype(str) + '_' + data['card2'].astype(str)
+
+        data['uid2'] = data['uid'].astype(str) + '_' + data['card3'].astype(str) + '_' + data['card4'].astype(str)
+
+        data['uid3'] = data['uid2'].astype(str) + '_' + data['addr1'].astype(str) + '_' + data['addr2'].astype(str)
+
+        data['uid4'] = data['uid3'].astype(str) + '_' + data['P_emaildomain'].astype(str)
+
+        data['uid5'] = data['uid3'].astype(str) + '_' + data['R_emaildomain'].astype(str)
+
+        data['bank_type'] = data['card3'].astype(str) + '_' + data['card5'].astype(str)
+
+        data['product_type'] = data['ProductCD'].astype(str) + '_' + data['TransactionAmt'].astype(str)
+
+        self.output = data
 
 class SomeAggregatesFromAnyaNode(Node):
     def _run(self):
@@ -361,6 +527,407 @@ class SomeAggregatesFromAnyaNode(Node):
                 data[new_column] /= data[period + '_total']
 
 
+class SomeAggregatesFromAnyaNewCardIdNode(Node):
+    def _run(self):
+        data = self.input[0]
+        num_cols = self.input[1]
+        cat_cols = self.input[2]
+
+        count_full = ['new_card_id', 'addr1', 'addr2'] + [f'card{i}' for i in range(1, 7)] + \
+                     ["ProductCD", "P_emaildomain",
+                      "R_emaildomain", "M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9", "DeviceType",
+                      "DeviceInfo", 'id_01', "id_12",
+                      "id_13", "id_14", "id_15", "id_16", "id_17", "id_18", "id_19", "id_20", "id_21", "id_22",
+                      "id_23", "id_24", "id_25", "id_26", "id_27", "id_28", "id_29", "id_30", 'id_31', "id_32",
+                      'id_33', "id_34", 'id_36', "id_37", "id_38"]
+        features_interaction = ['new_card_id__dist1',
+                                'new_card_id__id_20',
+                                'new_card_id__P_emaildomain',
+                                'new_card_id__addr1',
+                                'P_emaildomain__C2',
+                                'id_02__id_20',
+                                'id_02__D8',
+                                'D11__DeviceInfo',
+                                'DeviceInfo__P_emaildomain']
+
+        data['TransactionAmt_decimal'] = ((data['TransactionAmt'] - data['TransactionAmt'].astype(int)) * 1000).astype(
+            int)
+        num_cols.append('TransactionAmt_decimal')
+
+        data['nulls1'] = data.isna().sum(axis=1)
+        num_cols.append('nulls1')
+
+        a = np.zeros(data.shape[0])
+        data["lastest_browser"] = a
+
+        def browser(df):
+            df.loc[df["id_31"] == "samsung browser 7.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "opera 53.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "mobile safari 10.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "google search application 49.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "firefox 60.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "edge 17.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 69.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 67.0 for android", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 63.0 for android", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 63.0 for ios", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 64.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 64.0 for android", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 64.0 for ios", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 65.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 65.0 for android", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 65.0 for ios", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 66.0", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 66.0 for android", 'lastest_browser'] = 1
+            df.loc[df["id_31"] == "chrome 66.0 for ios", 'lastest_browser'] = 1
+            return df
+
+        browser(data)
+        cat_cols.append('lastest_browser')
+
+        def id_split(dataframe):
+            dataframe['device_name'] = dataframe['DeviceInfo'].str.split('/', expand=True)[0].astype(str)
+            dataframe['device_version'] = dataframe['DeviceInfo'].str.split('/', expand=True)[1].astype(str)
+
+            dataframe['OS_id_30'] = dataframe['id_30'].str.split(' ', expand=True)[0].astype(str)
+            dataframe['version_id_30'] = dataframe['id_30'].str.split(' ', expand=True)[1].astype(str)
+
+            dataframe['browser_id_31'] = dataframe['id_31'].str.split(' ', expand=True)[0].astype(str)
+            dataframe['version_id_31'] = dataframe['id_31'].str.split(' ', expand=True)[1].astype(str)
+
+            dataframe['screen_width'] = dataframe['id_33'].str.split('x', expand=True)[0].astype(np.float32)
+            dataframe['screen_height'] = dataframe['id_33'].str.split('x', expand=True)[1].astype(np.float32)
+
+            dataframe['id_34'] = dataframe['id_34'].str.split(':', expand=True)[1].astype(str)
+            dataframe['id_23'] = dataframe['id_23'].str.split(':', expand=True)[1].astype(str)
+
+            dataframe.loc[dataframe['device_name'].str.contains('SM', na=False), 'device_name'] = 'Samsung'
+            dataframe.loc[dataframe['device_name'].str.contains('SAMSUNG', na=False), 'device_name'] = 'Samsung'
+            dataframe.loc[dataframe['device_name'].str.contains('GT-', na=False), 'device_name'] = 'Samsung'
+            dataframe.loc[dataframe['device_name'].str.contains('Moto G', na=False), 'device_name'] = 'Motorola'
+            dataframe.loc[dataframe['device_name'].str.contains('Moto', na=False), 'device_name'] = 'Motorola'
+            dataframe.loc[dataframe['device_name'].str.contains('moto', na=False), 'device_name'] = 'Motorola'
+            dataframe.loc[dataframe['device_name'].str.contains('LG-', na=False), 'device_name'] = 'LG'
+            dataframe.loc[dataframe['device_name'].str.contains('rv:', na=False), 'device_name'] = 'RV'
+            dataframe.loc[dataframe['device_name'].str.contains('HUAWEI', na=False), 'device_name'] = 'Huawei'
+            dataframe.loc[dataframe['device_name'].str.contains('ALE-', na=False), 'device_name'] = 'Huawei'
+            dataframe.loc[dataframe['device_name'].str.contains('-L', na=False), 'device_name'] = 'Huawei'
+            dataframe.loc[dataframe['device_name'].str.contains('Blade', na=False), 'device_name'] = 'ZTE'
+            dataframe.loc[dataframe['device_name'].str.contains('BLADE', na=False), 'device_name'] = 'ZTE'
+            dataframe.loc[dataframe['device_name'].str.contains('Linux', na=False), 'device_name'] = 'Linux'
+            dataframe.loc[dataframe['device_name'].str.contains('XT', na=False), 'device_name'] = 'Sony'
+            dataframe.loc[dataframe['device_name'].str.contains('HTC', na=False), 'device_name'] = 'HTC'
+            dataframe.loc[dataframe['device_name'].str.contains('ASUS', na=False), 'device_name'] = 'Asus'
+
+            dataframe.loc[dataframe.device_name.isin(dataframe.device_name.value_counts()[
+                                                         dataframe.device_name.value_counts() < 200].index), 'device_name'] = "Others"
+            dataframe['had_id'] = 1
+            gc.collect()
+
+        id_split(data)
+        cat_cols.append('device_name')
+        cat_cols.append('device_version')
+        cat_cols.append('OS_id_30')
+        cat_cols.append('version_id_30')
+        cat_cols.append('version_id_31')
+        cat_cols.append('browser_id_31')
+        num_cols.append('screen_width')
+        num_cols.append('screen_height')
+        cat_cols.append('had_id')
+
+        data['TransactionAmt_Log'] = np.log(data['TransactionAmt'])
+        num_cols.append('TransactionAmt_Log')
+
+        # https://www.kaggle.com/fchmiel/day-and-time-powerful-predictive-feature
+        data['Transaction_day_of_week'] = np.floor((data['TransactionDT'] / (3600 * 24) - 1) % 7)
+        num_cols.append('Transaction_day_of_week')
+
+        data['Transaction_hour'] = np.floor(data['TransactionDT'] / 3600) % 24
+        num_cols.append('Transaction_hour')
+
+        # Some arbitrary features interaction
+        for feature in features_interaction:
+            f1, f2 = feature.split('__')
+            data[feature] = data[f1].astype(str) + '_' + data[f2].astype(str)
+            le = preprocessing.LabelEncoder()
+            le.fit(list(data[feature].astype(str).values))
+            data[feature] = le.transform(list(data[feature].astype(str).values))
+            cat_cols.append(feature)
+
+        # useful_features = ['TransactionAmt', 'ProductCD', 'card1', 'card2', 'card3', 'card4', 'card5', 'card6', 'addr1',
+        #                    'addr2', 'dist1',
+        #                    'P_emaildomain', 'R_emaildomain', 'C1', 'C2', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9', 'C10',
+        #                    'C11',
+        #                    'C12', 'C13',
+        #                    'C14', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D8', 'D9', 'D10', 'D11', 'D12', 'D13', 'D14',
+        #                    'D15',
+        #                    'M2', 'M3',
+        #                    'M4', 'M5', 'M6', 'M7', 'M8', 'M9', 'V3', 'V4', 'V5', 'V6', 'V7', 'V8', 'V9', 'V10', 'V11',
+        #                    'V12', 'V13', 'V17',
+        #                    'V19', 'V20', 'V29', 'V30', 'V33', 'V34', 'V35', 'V36', 'V37', 'V38', 'V40', 'V44', 'V45',
+        #                    'V46',
+        #                    'V47', 'V48',
+        #                    'V49', 'V51', 'V52', 'V53', 'V54', 'V56', 'V58', 'V59', 'V60', 'V61', 'V62', 'V63', 'V64',
+        #                    'V69',
+        #                    'V70', 'V71',
+        #                    'V72', 'V73', 'V74', 'V75', 'V76', 'V78', 'V80', 'V81', 'V82', 'V83', 'V84', 'V85', 'V87',
+        #                    'V90',
+        #                    'V91', 'V92',
+        #                    'V93', 'V94', 'V95', 'V96', 'V97', 'V99', 'V100', 'V126', 'V127', 'V128', 'V130', 'V131',
+        #                    'V138',
+        #                    'V139', 'V140',
+        #                    'V143', 'V145', 'V146', 'V147', 'V149', 'V150', 'V151', 'V152', 'V154', 'V156', 'V158',
+        #                    'V159',
+        #                    'V160', 'V161',
+        #                    'V162', 'V163', 'V164', 'V165', 'V166', 'V167', 'V169', 'V170', 'V171', 'V172', 'V173',
+        #                    'V175',
+        #                    'V176', 'V177',
+        #                    'V178', 'V180', 'V182', 'V184', 'V187', 'V188', 'V189', 'V195', 'V197', 'V200', 'V201',
+        #                    'V202',
+        #                    'V203', 'V204',
+        #                    'V205', 'V206', 'V207', 'V208', 'V209', 'V210', 'V212', 'V213', 'V214', 'V215', 'V216',
+        #                    'V217',
+        #                    'V219', 'V220',
+        #                    'V221', 'V222', 'V223', 'V224', 'V225', 'V226', 'V227', 'V228', 'V229', 'V231', 'V233',
+        #                    'V234',
+        #                    'V238', 'V239',
+        #                    'V242', 'V243', 'V244', 'V245', 'V246', 'V247', 'V249', 'V251', 'V253', 'V256', 'V257',
+        #                    'V258',
+        #                    'V259', 'V261',
+        #                    'V262', 'V263', 'V264', 'V265', 'V266', 'V267', 'V268', 'V270', 'V271', 'V272', 'V273',
+        #                    'V274',
+        #                    'V275', 'V276',
+        #                    'V277', 'V278', 'V279', 'V280', 'V282', 'V283', 'V285', 'V287', 'V288', 'V289', 'V291',
+        #                    'V292',
+        #                    'V294', 'V303',
+        #                    'V304', 'V306', 'V307', 'V308', 'V310', 'V312', 'V313', 'V314', 'V315', 'V317', 'V322',
+        #                    'V323',
+        #                    'V324', 'V326',
+        #                    'V329', 'V331', 'V332', 'V333', 'V335', 'V336', 'V338', 'id_01', 'id_02', 'id_03', 'id_05',
+        #                    'id_06', 'id_09',
+        #                    'id_11', 'id_12', 'id_13', 'id_14', 'id_15', 'id_17', 'id_19', 'id_20', 'id_30', 'id_31',
+        #                    'id_32', 'id_33',
+        #                    'id_36', 'id_37', 'id_38', 'DeviceType', 'DeviceInfo']
+
+        for feature in count_full:
+            # Count encoded separately for train and test
+            data[feature + '_count_full'] = data[feature].map(data[feature].value_counts(dropna=False))
+            num_cols.append(feature + '_count_full')
+
+        i_cols = ['M1', 'M2', 'M3', 'M5', 'M6', 'M7', 'M8', 'M9']
+
+        data['M_sum'] = data[i_cols].sum(axis=1).astype(np.int8)
+        num_cols.append('M_sum')
+        data['M_na'] = data[i_cols].isna().sum(axis=1).astype(np.int8)
+        num_cols.append('M_na')
+
+        for col in ['ProductCD', 'M4']:
+            temp_dict = data.groupby([col])['isFraud'].agg(['mean']).reset_index().rename(
+                columns={'mean': col + '_target_mean'})
+            temp_dict.index = temp_dict[col].values
+            temp_dict = temp_dict[col + '_target_mean'].to_dict()
+            data[col + '_target_mean'] = data[col].map(temp_dict)
+            num_cols.append(col + '_target_mean')
+
+        # todo: find out if it required
+        # data['TransactionAmt_check'] = np.where(train['TransactionAmt'].isin(test['TransactionAmt']), 1, 0)
+
+        i_cols = ['card1', 'card2', 'card3', 'card5',
+                  'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9', 'C10', 'C11', 'C12', 'C13', 'C14',
+                  'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8',
+                  'addr1', 'addr2',
+                  'dist1', 'dist2',
+                  'P_emaildomain', 'R_emaildomain',
+                  'DeviceInfo',
+                  'id_30',
+                  'version_id_30',
+                  'version_id_31',
+                  'id_33', 'new_card_id'
+                  ]
+
+        for col in i_cols:
+            temp_df = data[[col]]
+            fq_encode = temp_df[col].value_counts(dropna=False).to_dict()
+            data[col + '_fq_enc'] = data[col].map(fq_encode)
+            num_cols.append(col + '_fq_enc')
+
+    # numerical_cols = ['id_%02d' % i for i in range(1,12)] + ["V%d"%i for i in range(1,340)] + ["D%d"%i for i in range(1,16)] + ["C%d"%i for i in range(1,15)]  + ['dist1','TransactionAmt', 'NanIdentityCount', 'NanTransactionCount', '_Weekdays', '_Hours', '_Days', 'Date', 'dist2']
+    # label_cols = ['M1', 'M2', 'M3','M4', 'M5', 'M6', 'M7', 'M8', 'M9', 'card4', 'card6', 'ProductCD'] + ['id_%02d'%i for i in (12,15,16,28,29,32,34,35,36,37,38)]
+    # label_cols += ['id_13', 'id_14', 'id_17', 'id_18', 'id_19', 'id_20', 'id_21', 'id_22', 'id_23', 'id_24', 'id_25', 'id_26', 'id_27',
+    #             'id_30', 'id_31',  'id_33', 'DeviceType', 'DeviceInfo', 'P_emaildomain',
+    #             'R_emaildomain', 'card1', 'card2', 'card3',  'card5', 'addr1', 'addr2',
+    #             'P_emaildomain_bin', 'P_emaildomain_suffix', 'R_emaildomain_bin', 'R_emaildomain_suffix']
+    #
+    # #add_from Anya Features
+    # numerical_cols+=['TransactionDT', 'Weekdays', 'Hours', 'Days','DT_M', 'DT_W', 'DT_D','id_02_to_mean_card1', 'id_02_to_mean_card4', 'id_02_to_std_card1', 'id_02_to_std_card4', 'D15_to_mean_card1', 'D15_to_mean_card4', 'D15_to_std_card1', 'D15_to_std_card4', 'D15_to_mean_addr1', 'D15_to_std_addr1', 'TransactionAmt_to_mean_card1', 'TransactionAmt_to_mean_card4', 'TransactionAmt_to_std_card1', 'TransactionAmt_to_std_card4', 'TransactionAmt_decimal','nulls1','screen_width', 'screen_height','TransactionAmt_Log', 'card1_count_full',   'Transaction_day_of_week', 'Transaction_hour', 'id_01_count_dist', 'id_31_count_dist', 'id_33_count_dist', 'id_36_count_dist', 'card2_count_full', 'card3_count_full', 'card4_count_full', 'card5_count_full', 'card6_count_full', 'addr1_count_full', 'addr2_count_full', 'id_36_count_full', 'M_sum', 'M_na', 'ProductCD_target_mean', 'M4_target_mean',  'card1_TransactionAmt_mean', 'card1_TransactionAmt_std', 'card2_TransactionAmt_mean', 'card2_TransactionAmt_std', 'card3_TransactionAmt_mean', 'card3_TransactionAmt_std', 'card5_TransactionAmt_mean', 'card5_TransactionAmt_std', 'uid_TransactionAmt_mean', 'uid_TransactionAmt_std', 'uid2_TransactionAmt_mean', 'uid2_TransactionAmt_std', 'uid3_TransactionAmt_mean', 'uid3_TransactionAmt_std', 'card1_fq_enc', 'card2_fq_enc', 'card3_fq_enc', 'card5_fq_enc', 'C1_fq_enc', 'C2_fq_enc', 'C3_fq_enc', 'C4_fq_enc', 'C5_fq_enc', 'C6_fq_enc', 'C7_fq_enc', 'C8_fq_enc', 'C9_fq_enc', 'C10_fq_enc', 'C11_fq_enc', 'C12_fq_enc', 'C13_fq_enc', 'C14_fq_enc', 'D1_fq_enc', 'D2_fq_enc', 'D3_fq_enc', 'D4_fq_enc', 'D5_fq_enc', 'D6_fq_enc', 'D7_fq_enc', 'D8_fq_enc', 'addr1_fq_enc', 'addr2_fq_enc', 'dist1_fq_enc', 'dist2_fq_enc', 'P_emaildomain_fq_enc', 'R_emaildomain_fq_enc', 'DeviceInfo_fq_enc', 'id_30_fq_enc', 'version_id_30_fq_enc', 'version_id_31_fq_enc', 'id_33_fq_enc', 'uid_fq_enc', 'uid2_fq_enc', 'uid3_fq_enc', 'DT_M_total', 'DT_W_total', 'DT_D_total', 'card1_DT_M', 'card2_DT_M', 'card3_DT_M', 'card5_DT_M', 'uid_DT_M', 'uid2_DT_M', 'uid3_DT_M', 'card1_DT_W', 'card2_DT_W', 'card3_DT_W', 'card5_DT_W', 'uid_DT_W', 'uid2_DT_W', 'uid3_DT_W', 'card1_DT_D', 'card2_DT_D', 'card3_DT_D', 'card5_DT_D', 'uid_DT_D', 'uid2_DT_D', 'uid3_DT_D']
+    # label_cols+=['isNight','lastest_browser', 'device_name', 'device_version', 'OS_id_30', 'version_id_30', 'browser_id_31', 'version_id_31', 'had_id', 'id_02__id_20', 'id_02__D8', 'D11__DeviceInfo', 'DeviceInfo__P_emaildomain', 'P_emaildomain__C2', 'card2__dist1', 'card1__card5', 'card2__id_20', 'card5__P_emaildomain', 'addr1__card1','uid', 'uid2', 'uid3']
+    # strange_cols = ['Transaction_day_of_week', 'Transaction_hour']
+
+    # p.data['numerical_columns'] = numerical_cols
+    # p.data['categorical_columns'] = label_cols
+    # p.data['useless_columns'] = strange_cols
+
+
+
+
+class AddAggregatesTotalNode(Node):
+    params = {
+        'features': [],
+        'group_by': 'card_id'
+    }
+
+    def _run(self):
+        data = self.input[0]
+        num_cols = self.input[1]
+        cat_cols = self.input[2]
+        group_by_feature = self.params['group_by']
+
+        for fname in self.params['features']:
+            data[f'{fname}_to_mean_{group_by_feature}'] = data[fname] / data.groupby([group_by_feature])[
+                fname].transform('mean').replace(-np.inf, np.nan).replace(np.inf, np.nan).astype(np.float32)
+            data[f'{fname}_to_std_{group_by_feature}'] = data[fname] / data.groupby([group_by_feature])[
+                fname].transform('std').replace(-np.inf, np.nan).replace(np.inf, np.nan).astype(np.float32)
+            num_cols.extend([f'{fname}_to_mean_{group_by_feature}', f'{fname}_to_std_{group_by_feature}'])
+
+        self.output = [data, num_cols, cat_cols]
+
+
+    class AddGroupNumericalAggregatesNode(Node):
+    params = {
+        'features': [],
+        'group_by': ['new_card_id'],
+        'to_mean': True,
+        'to_std': True,
+        'to_minmax': True,
+        'to_std_score': True
+    }
+
+    def _run(self):
+        df = self.input[0]
+        num_cols = self.input[1]
+        cat_cols = self.input[2]
+        groupby = self.params['group_by']
+        cols = self.params['features']
+        to_mean = self.params['to_mean']
+        to_std = self.params['to_std']
+        to_minmax = self.params['to_minmax']
+        to_std_score = self.params['to_std_score']
+
+        slice_df = df[groupby + cols]
+        if len(groupby) == 1:
+            gcname = groupby[0]
+        else:
+            gcname = "(" + '+'.join(groupby) + ")"
+
+        for igc, gc in enumerate(groupby):
+            if igc == 0:
+                slice_df['group_col'] = slice_df[gc].astype(str)
+            else:
+                slice_df['group_col'] += '_' + slice_df[gc].astype(str)
+
+        #     if freq:
+        #         count = slice_df['group_col'].map(slice_df['group_col'].value_counts(dropna=False))
+
+        for col in cols:
+            group_col = slice_df.groupby(['group_col'])[col]
+            dmean = group_col.transform('mean')
+            dstd = group_col.transform('std').replace(-np.inf, np.nan).replace(np.inf, np.nan)
+
+            if to_mean:
+                df[f'{col}_to_mean_groupby_{gcname}'] = (slice_df[col] / dmean).astype(np.float32)
+                num_cols.append(f'{col}_to_mean_groupby_{gcname}')
+
+            if to_std:
+                df[f'{col}_to_std_groupby_{gcname}'] = (slice_df[col] / dstd).replace(
+                    {np.inf: 0, -np.inf: 0, np.nan: 0}).astype(np.float32)
+                num_cols.append(f'{col}_to_std_groupby_{gcname}')
+
+            if to_minmax:
+                dmin = group_col.transform('min').astype(np.float32)
+                dmax = group_col.transform('max').astype(np.float32)
+                df[f'{col}_to_minmax_groupby_{gcname}'] = ((slice_df[col] - dmin) / (dmax - dmin)).replace(
+                    {np.inf: 0, -np.inf: 0, np.nan: 0}).astype(np.float32)
+                num_cols.append(f'{col}_to_minmax_groupby_{gcname}')
+
+            if to_std_score:
+                df[f'{col}_to_stdscore_groupby_{gcname}'] = ((slice_df[col] - dmean) / dstd).replace(
+                    {np.inf: 0, -np.inf: 0, np.nan: 0}).astype(np.float32)
+                num_cols.append(f'{col}_to_stdscore_groupby_{gcname}')
+
+        self.output = [df, num_cols, cat_cols]
+
+
+class AddGroupFrequencyEncodingNode(Node):
+    params = {
+        'features': [],
+        'group_by': ['new_card_id'],
+        'count': True,
+        'freq': False
+    }
+
+    def _run(self):
+        df = self.input[0]
+        num_cols = self.input[1]
+        cat_cols = self.input[2]
+        groupby = self.params['group_by']
+        cols = self.params['features']
+        to_count = self.params['count']
+        to_freq = self.params['freq']
+
+        slice_df = df[groupby + cols]
+        if len(groupby) == 1:
+            gcname = groupby[0]
+        else:
+            gcname = "(" + '+'.join(groupby) + ")"
+
+        for igc, gc in enumerate(groupby):
+            if igc == 0:
+                slice_df['group_col'] = slice_df[gc].astype(str)
+            else:
+                slice_df['group_col'] += '_' + slice_df[gc].astype(str)
+        if to_freq:
+            count = slice_df['group_col'].map(slice_df['group_col'].value_counts(dropna=False))
+        for col in cols:
+            tempdf = (slice_df['group_col'] + '_' + slice_df[col].astype(str))
+            tempdf = tempdf.map(tempdf.value_counts(dropna=False))
+            if to_count:
+                df[f'{col}_count_groupby_{gcname}'] = tempdf
+                num_cols.append(f'{col}_count_groupby_{gcname}')
+            if to_freq:
+                df[f'{col}_freq_groupby_{gcname}'] = tempdf / count
+                num_cols.append(f'{col}_freq_groupby_{gcname}')
+
+        self.output = [df, num_cols, cat_cols]
+
+
+class AddGlobalFrequencyEncodingNode(Node):
+    params = {
+        'features': [],
+        'count': True,
+        'freq': False
+    }
+
+    def _run(self):
+        df = self.input[0]
+        num_cols = self.input[1]
+        cat_cols = self.input[2]
+        cols = self.params['features']
+        to_count = self.params['count']
+        to_freq = self.params['freq']
+
+        slice_df = df[cols]
+        for col in cols:
+            tempdf = slice_df[col].map(slice_df[col].value_counts(dropna=False))
+            if to_count:
+                df[f'{col}_global_count'] = tempdf
+                num_cols.append(f'{col}_global_count')
+            if to_freq:
+                df[f'{col}_global_freq'] = tempdf / tempdf.shape[0]
+                num_cols.append(f'{col}_global_freq')
+
+        self.output = [df, num_cols, cat_cols]
+
+
 class EmailTransformNode(Node):
     '''
    # Transforming email domains
@@ -638,8 +1205,8 @@ class AddDeviceOSInfoNode(Node):
                 fdata.loc[idx]['BrowserVersion'].replace(browser_map)).astype('datetime64[s]'))) / np.timedelta64(1,
                                                                                                                   'D')
 
-        cat_cols.extend(['Browser', 'OS', 'OSVersion', 'device_name', 'device_version'])
-        num_cols.extend(['BrowserAge', 'BrowserVersion', 'screen_height', 'screen_width'])
+        cat_cols.extend(['Browser', 'OS', 'OSVersion', 'device_name', 'device_version', 'BrowserVersion'])
+        num_cols.extend(['BrowserAge'])
 
 
 class AddCardIdNode(Node):
@@ -654,6 +1221,7 @@ class AddCardIdNode(Node):
         L.fit(data['card_id'])
         data['card_id'] = L.transform(data['card_id'])
         cat_cols.append('card_id')
+
 
 class AddNewCardIdNode(Node):
     def _run(self):
@@ -763,6 +1331,7 @@ class AddNewCardIdNode(Node):
         cat_cols.append('new_card_id')
         num_cols.append('start_date')
 
+
 class AddTemporalAggregates(Node):
     params = {
         'features': [],
@@ -798,7 +1367,6 @@ class AddTemporalAggregates(Node):
 
         with mp.Pool() as Pool:
 
-
             self.output = pd.DataFrame(index=data.index)
             for nf in self.params['features']:
                 if nf not in data.columns:
@@ -820,11 +1388,13 @@ class AddTemporalAggregates(Node):
                 num_cols.extend(list(df.columns))
         #         break
 
+
 class CorrectScreenWidthHeightTypeNode(Node):
     def _run(self):
         data = self.input
         data['screen_width'] = data['screen_width'].fillna(np.NaN).astype(np.float16)
-        data['screen_height'] = data['screen_height'].replace('None',np.NaN).astype(np.float16)
+        data['screen_height'] = data['screen_height'].replace('None', np.NaN).astype(np.float16)
+
 
 class FindUselessForTrainingFeaturesNode(Node):
     params = {
@@ -862,3 +1432,24 @@ class FindUselessForTrainingFeaturesNode(Node):
                 bad_for_training_features.append(k)
 
         self.output = bad_for_training_features
+
+
+class FindFalsePredictionsNode(Node):
+    params = {
+        'cutoff': 0.3
+    }
+
+    def _run(self):
+        data = self.input[0][['isFraud']]
+        train = data[data.isFraud >= 0]
+
+        oof = self.input[1].set_index('TransactionID')['isFraud']
+        train['pred'] = oof
+        cutoff = 0.3
+        true_positives = train[train.pred_0 >= cutoff][train.isFraud == 1]
+        false_positives = train[train.pred_0 >= cutoff][train.isFraud == 0]
+        false_negatives = train[train.pred_0 < cutoff][train.isFraud == 1]
+        true_negatives = train[train.pred_0 < cutoff][train.isFraud == 0]
+        print(f'TP: {len(true_positives)}, FP: {len(false_positives)}')
+        print(f'FN: {len(false_negatives)}, TN: {len(true_negatives)}')
+        self.output = [false_positives, false_negatives]

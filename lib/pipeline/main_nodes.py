@@ -60,8 +60,19 @@ class DropFeaturesNode(Node):
     }
 
     def _run(self):
-        cols_to_drop = [col for col in self.params['drop'] if col in self.input.columns]
-        self.output = self.input.drop(cols_to_drop, axis=1)
+        data = self.input[0]
+        num_cols = self.input[1]
+        cat_cols = self.input[2]
+
+        cols_to_drop = [col for col in self.params['drop'] if col in data.columns]
+        for col in self.params['drop']:
+            if col in num_cols:
+                num_cols.remove(col)
+            if col in cat_cols:
+                cat_cols.remove(col)
+
+
+        self.output = (data.drop(cols_to_drop, axis=1), num_cols,cat_cols)
 
 
 class JoinNode(Node):
