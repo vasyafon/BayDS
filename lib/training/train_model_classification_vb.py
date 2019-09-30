@@ -22,6 +22,7 @@ from sklearn import metrics
 from sklearn.model_selection import KFold
 import gc
 from .third_party import fast_auc, eval_auc, plot_importance
+from sklearn.utils import shuffle
 
 
 def train_model_classification_vb(X, X_test, y, params, folds, model_type='lgb', eval_metric='auc', columns=None,
@@ -109,17 +110,29 @@ def train_model_classification_vb(X, X_test, y, params, folds, model_type='lgb',
         # down/upsample train dataset
         if train_0_sample_coef is not None or train_1_sample_coef is not None:
             assert NotImplementedError
-            X_train_0 = X_train[y_train == 0]
-            X_train_1 = X_train[y_train == 1]
+            if type(X_train) is np.ndarray:
+                assert NotImplementedError
+                # train = np.hstack([X_train.values, y_train.reshape((-1,1))])
+            else:
+                X_train['target'] = y_train
+
+            train_0 = X_train[X_train.target == 0]
+            train_1 = X_train[X_train.target == 1]
+            if 'random_state' in params:
+                np.random.seed(params['random_state'])
             if train_0_sample_coef is not None:
-                X_train_0 = X_train_0.sample(int(X_train_0.shape[0] * train_0_sample_coef),
-                                             random_state=params['random_state'])
+                train_0 = train_0.sample(int(train_0.shape[0] * train_0_sample_coef),
+                                         random_state=params['random_state'], replace=True)
             if train_1_sample_coef is not None:
-                X_train_1 = X_train_1.sample(int(X_train_1.shape[0] * train_1_sample_coef),
-                                             random_state=params['random_state'])
-            X_train = np.vstack((X_train_0, X_train_1))
-            del X_train_0
-            del X_train_1
+                train_1 = train_1.sample(int(train_1.shape[0] * train_1_sample_coef),
+                                         random_state=params['random_state'], replace=True)
+            train = pd.concat([train_0, train_1], axis=0)
+            train = shuffle(train)
+            X_train = train.drop(['target'], axis=1)
+            y_train = train.target
+            del train_0
+            del train_1
+            del train
 
         if model_type == 'lgb':
             model = lgb.LGBMClassifier(**params, n_estimators=n_estimators, n_jobs=n_jobs)
