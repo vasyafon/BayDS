@@ -1,0 +1,478 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-22T06:42:56.890805Z",
+     "start_time": "2019-09-22T06:42:56.774804Z"
+    }
+   },
+   "outputs": [],
+   "source": [
+    "%load_ext autoreload\n",
+    "%autoreload 2"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-22T06:43:03.656588Z",
+     "start_time": "2019-09-22T06:42:58.227552Z"
+    }
+   },
+   "outputs": [],
+   "source": [
+    "main_dir = r'../../..'\n",
+    "data_path = main_dir+'/data'\n",
+    "import sys\n",
+    "sys.path.append(main_dir)\n",
+    "from BayDS.lib.pipeline import *"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-22T06:43:04.076599Z",
+     "start_time": "2019-09-22T06:43:03.940591Z"
+    }
+   },
+   "outputs": [],
+   "source": [
+    "from typing import List, Set, Dict, Optional, Any, Tuple, Type, Union\n",
+    "from BayDS.lib.io import *\n",
+    "import os\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-22T06:43:29.297117Z",
+     "start_time": "2019-09-22T06:43:16.142014Z"
+    }
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "---------------------------\n",
+      "0: LoaderNode [2019-09-22 09:43:16]\n",
+      "params:\n",
+      " {'input_directory': '../../../Snapshots/1/99', 'file': 'data.pkl'}\n"
+     ]
+    }
+   ],
+   "source": [
+    "data_dir =f'{main_dir}/Snapshots/1/99'\n",
+    "input_dir = f'{main_dir}/Data'\n",
+    "\n",
+    "p = Pipeline(working_folder=f'{main_dir}/Snapshots/1/Analyses')\n",
+    "\n",
+    "\n",
+    "# p.add_node(IEEEFraudTransactionLoaderNode, None, 'transactions',\n",
+    "#            params={\n",
+    "#                'input_directory': input_dir\n",
+    "#            })\n",
+    "\n",
+    "p.add_node(LoaderNode, None, 'data',\n",
+    "           params={\n",
+    "               'input_directory': data_dir,\n",
+    "               'file': 'data.pkl'\n",
+    "           })\n",
+    "# p.add_node(LoaderNode, None, 'numerical_columns',\n",
+    "#            params={\n",
+    "#                'input_directory': data_dir,\n",
+    "#                'file': 'numerical_columns.yaml'\n",
+    "#            })\n",
+    "# p.add_node(LoaderNode, None, 'categorical_columns',\n",
+    "#            params={\n",
+    "#                'input_directory': data_dir,\n",
+    "#                'file': 'categorical_columns.yaml'\n",
+    "#            })\n",
+    "\n",
+    "p.run(verbose=True)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-22T06:43:29.762142Z",
+     "start_time": "2019-09-22T06:43:29.580126Z"
+    }
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "0        25957\n",
+       "1        22512\n",
+       "2        21842\n",
+       "3        19393\n",
+       "4        14444\n",
+       "         ...  \n",
+       "19098        1\n",
+       "16668        1\n",
+       "18717        1\n",
+       "15635        1\n",
+       "18890        1\n",
+       "Name: card_id, Length: 19213, dtype: int64"
+      ]
+     },
+     "execution_count": 6,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "df = p.data['data']\n",
+    "df.card_id.value_counts()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-22T06:43:31.052141Z",
+     "start_time": "2019-09-22T06:43:30.924135Z"
+    }
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "(1091152, 590)"
+      ]
+     },
+     "execution_count": 7,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "df.shape"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-21T16:01:03.529686Z",
+     "start_time": "2019-09-21T16:01:01.500Z"
+    }
+   },
+   "outputs": [],
+   "source": [
+    "from datetime import datetime,timedelta\n",
+    "from typing import NamedTuple, List, Dict,Set\n",
+    "class User(object):\n",
+    "    user_id:int\n",
+    "    card_id:str\n",
+    "    start_date:datetime\n",
+    "    last_transaction_date:datetime\n",
+    "    transaction_ids: List[str]\n",
+    "    def __init__(self,**kwargs):\n",
+    "        for k,v in kwargs.items():\n",
+    "            setattr(self,k,v)\n",
+    "    def __repr__(self):\n",
+    "        return str(self.__dict__)\n",
+    "users = []\n",
+    "users_by_card_id_by_first_date:Dict[int,Dict[datetime,User]] = {}\n",
+    "\n",
+    "START_DATE = '1900-12-01'\n",
+    "nan_startdate = datetime.strptime(START_DATE, \"%Y-%m-%d\")\n",
+    "\n",
+    "START_DATE = '1950-12-01'\n",
+    "zero_startdate = datetime.strptime(START_DATE, \"%Y-%m-%d\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-21T16:01:03.532684Z",
+     "start_time": "2019-09-21T16:01:01.503Z"
+    },
+    "scrolled": false
+   },
+   "outputs": [],
+   "source": [
+    "percentage = 0\n",
+    "for card_id in range(0,19213):\n",
+    "    new_percentage = card_id*100//19213\n",
+    "    if new_percentage > percentage:\n",
+    "        percentage = new_percentage\n",
+    "        if percentage % 5 ==0:\n",
+    "            print(f'{percentage}%')\n",
+    "    user_df = df[df.card_id==card_id]\n",
+    "    D_cols = ['D%d'%i for i in range(1,5)]\n",
+    "    filtered = user_df[['Date']+D_cols]\n",
+    "#     filtered['diff'] = filtered.Date.diff()\n",
+    "    for index,row in filtered.iterrows():\n",
+    "        dt = row['Date'].date()\n",
+    "        if pd.isnull(row['D1']):\n",
+    "            first_transaction_date = nan_startdate\n",
+    "            days_since_first_transaction = (dt - startdate.date()).days\n",
+    "        else:\n",
+    "            days_since_first_transaction = int(row['D1'])\n",
+    "            if days_since_first_transaction == 0:\n",
+    "                first_transaction_date = zero_startdate\n",
+    "            else:\n",
+    "                first_transaction_date = dt-timedelta(days=days_since_first_transaction)\n",
+    "        create_new = False\n",
+    "        if card_id not in users_by_card_id_by_first_date:\n",
+    "            users_by_card_id_by_first_date[card_id] = {}\n",
+    "            create_new = True\n",
+    "        else:\n",
+    "            if first_transaction_date not in users_by_card_id_by_first_date[card_id]:\n",
+    "                create_new = True\n",
+    "            else:\n",
+    "                u = users_by_card_id_by_first_date[card_id][first_transaction_date]\n",
+    "                u.last_transaction_date = dt\n",
+    "                u.transaction_ids.append(index)\n",
+    "        if create_new:\n",
+    "            u = User(user_id=len(users),\n",
+    "                     card_id=card_id,\n",
+    "                     start_date=first_transaction_date,\n",
+    "                     last_transaction_date=dt,\n",
+    "                     transaction_ids=[index])\n",
+    "            users.append(u)\n",
+    "            users_by_card_id_by_first_date[card_id][first_transaction_date] = u\n",
+    "    \n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-21T16:01:03.534683Z",
+     "start_time": "2019-09-21T16:01:01.509Z"
+    }
+   },
+   "outputs": [],
+   "source": [
+    "filtered\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-21T16:01:03.535684Z",
+     "start_time": "2019-09-21T16:01:01.513Z"
+    }
+   },
+   "outputs": [],
+   "source": [
+    "card_id = 0\n",
+    "users_by_card_id_by_first_date[card_id].keys()\n",
+    "x = list(users_by_card_id_by_first_date[card_id].keys())\n",
+    "y = [len(users_by_card_id_by_first_date[card_id][k].transaction_ids) for k in x]\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-21T16:01:03.537684Z",
+     "start_time": "2019-09-21T16:01:01.520Z"
+    }
+   },
+   "outputs": [],
+   "source": [
+    "df[df.card_id == 6006][['isFraud','Date']+D_cols]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-21T16:01:03.538684Z",
+     "start_time": "2019-09-21T16:01:01.522Z"
+    }
+   },
+   "outputs": [],
+   "source": [
+    "l = len(users)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-21T16:01:03.540713Z",
+     "start_time": "2019-09-21T16:01:01.525Z"
+    }
+   },
+   "outputs": [],
+   "source": [
+    "# df_new_card_id = pd.DataFrame(index=df.index)\n",
+    "# df_new_card_id['new_card_id'] = -1\n",
+    "# df_new_card_id['new_card_id'].astype(np.int32)\n",
+    "# df_start_date = pd.DataFrame(index=df.index)\n",
+    "# df_start_date['start_date'] = -1\n",
+    "# df_start_date['start_date'].astype(np.int32)\n",
+    "\n",
+    "index_to_new_card_id = {}\n",
+    "index_to_new_start_date = {}\n",
+    "percentage = 0\n",
+    "for i,u in enumerate(users):\n",
+    "    new_percentage = i*100//l\n",
+    "    if new_percentage > percentage:\n",
+    "        percentage = new_percentage\n",
+    "        if percentage % 5 ==0:\n",
+    "            print(f'{percentage}%')\n",
+    "#     df_new_card_id.loc[u.transaction_ids,'new_cardId'] = u.user_id\n",
+    "#     df_start_date.loc[u.transaction_ids,'start_date'] = u.start_date\n",
+    "    for idx in u.transaction_ids:\n",
+    "        index_to_new_card_id[idx] = u.user_id\n",
+    "        index_to_new_start_date[idx] = u.start_date\n",
+    "            \n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-21T16:01:03.541686Z",
+     "start_time": "2019-09-21T16:01:01.527Z"
+    }
+   },
+   "outputs": [],
+   "source": [
+    "new_card_id = np.zeros(len(df.index),dtype=np.int32)\n",
+    "start_date = np.zeros(len(df.index),dtype='datetime64[ms]')\n",
+    "for i,idx in enumerate(df.index):\n",
+    "    if idx not in index_to_new_card_id:\n",
+    "        print(f'Not Found {idx}')\n",
+    "        continue\n",
+    "    new_card_id[i] = index_to_new_card_id[idx]\n",
+    "    start_date[i] = index_to_new_start_date[idx]\n",
+    "    "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-21T16:01:03.543684Z",
+     "start_time": "2019-09-21T16:01:01.530Z"
+    }
+   },
+   "outputs": [],
+   "source": [
+    "df['new_card_id'] = new_card_id"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-21T16:01:03.544684Z",
+     "start_time": "2019-09-21T16:01:01.534Z"
+    }
+   },
+   "outputs": [],
+   "source": [
+    "df['start_date'] = start_date"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "ExecuteTime": {
+     "end_time": "2019-09-21T16:01:03.546685Z",
+     "start_time": "2019-09-21T16:01:01.536Z"
+    }
+   },
+   "outputs": [],
+   "source": [
+    "df[['new_card_id','start_date']].to_pickle(f'{p.working_folder}/new_id.pkl')"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.7.4"
+  },
+  "toc": {
+   "base_numbering": 1,
+   "nav_menu": {},
+   "number_sections": true,
+   "sideBar": true,
+   "skip_h1_title": false,
+   "title_cell": "Table of Contents",
+   "title_sidebar": "Contents",
+   "toc_cell": false,
+   "toc_position": {},
+   "toc_section_display": true,
+   "toc_window_display": false
+  },
+  "varInspector": {
+   "cols": {
+    "lenName": 16,
+    "lenType": 16,
+    "lenVar": 40
+   },
+   "kernels_config": {
+    "python": {
+     "delete_cmd_postfix": "",
+     "delete_cmd_prefix": "del ",
+     "library": "var_list.py",
+     "varRefreshCmd": "print(var_dic_list())"
+    },
+    "r": {
+     "delete_cmd_postfix": ") ",
+     "delete_cmd_prefix": "rm(",
+     "library": "var_list.r",
+     "varRefreshCmd": "cat(var_dic_list()) "
+    }
+   },
+   "types_to_exclude": [
+    "module",
+    "function",
+    "builtin_function_or_method",
+    "instance",
+    "_Feature"
+   ],
+   "window_display": false
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
