@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from keras.models import Model
+from keras.callbacks import Callback, EarlyStopping
 
 pd.options.display.precision = 15
 import warnings
@@ -124,7 +125,7 @@ def train_model_classification_vb(X, X_test, y, params, folds, model_type='lgb',
                 train_1 = train_1.sample(int(train_1.shape[0] * train_1_sample_coef),
                                          random_state=params['random_state'], replace=True)
             train = pd.concat([train_0, train_1], axis=0)
-            train = shuffle(train,random_state=params['random_state'])
+            train = shuffle(train, random_state=params['random_state'])
             X_train = train.drop(['target'], axis=1)
             y_train = train.target
             del train_0
@@ -156,7 +157,8 @@ def train_model_classification_vb(X, X_test, y, params, folds, model_type='lgb',
             y_pred_valid = model.predict(xgb.DMatrix(X_valid, feature_names=feature_names),
                                          ntree_limit=model.best_ntree_limit)
             if X_test is not None:
-                y_pred = model.predict(xgb.DMatrix(X_test, feature_names=feature_names), ntree_limit=model.best_ntree_limit)
+                y_pred = model.predict(xgb.DMatrix(X_test, feature_names=feature_names),
+                                       ntree_limit=model.best_ntree_limit)
 
         if model_type == 'sklearn':
             model = model
@@ -171,7 +173,11 @@ def train_model_classification_vb(X, X_test, y, params, folds, model_type='lgb',
 
         if model_type == 'keras':
             kmodel: Model = model()
-            kmodel.fit(X_train, y_train, validation_data=(X_valid, y_valid), **params)
+
+            my_callbacks = [EarlyStopping(monitor='auroc', patience=early_stopping_rounds, verbose=1, mode='max')]
+
+            keras_params = {k: v for k, v in params.items() if k not in ('random_state',)}
+            kmodel.fit(X_train, y_train, validation_data=(X_valid, y_valid), **keras_params, callbacks=my_callbacks)
             predict_params = {k: v for k, v in params.items() if k in ['batch_size', 'verbose', 'steps', 'callbacks',
                                                                        'max_queue_size', 'workers',
                                                                        'use_multiprocessing']}
