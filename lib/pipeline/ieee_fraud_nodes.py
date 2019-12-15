@@ -790,26 +790,7 @@ class SomeAggregatesFromAnyaNewCardIdNode(Node):
 
 
 
-class AddAggregatesTotalNode(Node):
-    params = {
-        'features': [],
-        'group_by': 'card_id'
-    }
 
-    def _run(self):
-        data = self.input[0]
-        num_cols = self.input[1]
-        cat_cols = self.input[2]
-        group_by_feature = self.params['group_by']
-
-        for fname in self.params['features']:
-            data[f'{fname}_to_mean_{group_by_feature}'] = data[fname] / data.groupby([group_by_feature])[
-                fname].transform('mean').replace(-np.inf, np.nan).replace(np.inf, np.nan).astype(np.float32)
-            data[f'{fname}_to_std_{group_by_feature}'] = data[fname] / data.groupby([group_by_feature])[
-                fname].transform('std').replace(-np.inf, np.nan).replace(np.inf, np.nan).astype(np.float32)
-            num_cols.extend([f'{fname}_to_mean_{group_by_feature}', f'{fname}_to_std_{group_by_feature}'])
-
-        self.output = [data, num_cols, cat_cols]
 
 
 class AddGroupNumericalAggregatesNode(Node):
