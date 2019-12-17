@@ -1,7 +1,5 @@
 import numpy as np
 import pandas as pd
-from keras.models import Model
-from keras.callbacks import Callback, EarlyStopping
 
 pd.options.display.precision = 15
 import warnings
@@ -172,6 +170,9 @@ def train_model_classification_vb(X, X_test, y, params, folds, model_type='lgb',
                 y_pred = model.predict_proba(X_test)[:, 1]
 
         if model_type == 'keras':
+            from keras.models import Model
+            from keras.callbacks import Callback, EarlyStopping
+
             kmodel: Model = model()
 
             my_callbacks = [EarlyStopping(monitor='auroc', patience=early_stopping_rounds, verbose=1, mode='max')]

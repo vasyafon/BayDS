@@ -1,10 +1,6 @@
 import numpy as np
 import pandas as pd
-from keras.layers import Concatenate, Input, Dense, Embedding, Flatten, Dropout, BatchNormalization, SpatialDropout1D
-from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau
-from keras.models import Model
-from keras.optimizers import Adam
-import keras.backend as k
+
 
 pd.options.display.precision = 15
 import warnings
@@ -176,6 +172,12 @@ def train_model_classification(X, X_test, y, params, folds, model_type='lgb', ev
                 y_pred = model.predict_proba(X_test)[:, 1]
 
         if model_type == 'keras':
+            from keras.layers import Concatenate, Input, Dense, Embedding, Flatten, Dropout, BatchNormalization, SpatialDropout1D
+            from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau
+            from keras.models import Model
+            from keras.optimizers import Adam
+            import keras.backend as k
+
             kmodel: Model = model()
             kmodel.fit(X_train, y_train, validation_data=(X_valid, y_valid), **params)
             predict_params = {k: v for k, v in params.items() if k in ['batch_size', 'verbose', 'steps', 'callbacks',
