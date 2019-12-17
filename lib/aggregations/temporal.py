@@ -2,11 +2,11 @@ import pandas as pd
 
 
 def aggregate_with_time_local(args):
-    data_slice, group_column, num_feature, window_size = args
+    data_slice, group_column, num_feature, window_size, time_feature = args
     #     data_slice = data[['Date',group_column,num_feature]].reset_index()
     gb = data_slice.groupby([group_column])
-    q = gb.rolling(window_size, on='Date', min_periods=1)[num_feature].agg(['mean', 'std'])
-    ds = data_slice.set_index([group_column, 'Date'])
+    q = gb.rolling(window_size, on=time_feature, min_periods=1)[num_feature].agg(['mean', 'std'])
+    ds = data_slice.set_index([group_column, time_feature])
     ds = ds.join(q)
     ds = ds.set_index('TransactionID').sort_index()
     to_mean = ds[num_feature] / ds['mean']
@@ -22,12 +22,12 @@ def transaction_velocity_agg(x):
 
 
 def aggregate_transaction_frequencies(args):
-    data_slice, group_column, window_size = args
+    data_slice, group_column, window_size, time_feature = args
 
-    ds = data_slice.set_index([group_column, 'Date'])
+    ds = data_slice.set_index([group_column, time_feature])
 
     gb = data_slice.groupby([group_column])
-    q = gb.rolling(window_size, on='Date', min_periods=1, center=False)['hours'].agg(transaction_velocity_agg)
+    q = gb.rolling(window_size, on=time_feature, min_periods=1, center=False)['hours'].agg(transaction_velocity_agg)
     ds[f'Transaction_freq_{window_size}_past'] = q
 
     if isinstance(window_size, int):
