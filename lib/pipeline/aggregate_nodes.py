@@ -111,6 +111,7 @@ class AddGroupFrequencyEncodingNode(Node):
             gcname = "(" + '+'.join(groupby) + ")"
 
         for igc, gc in enumerate(groupby):
+            print (igc,gc)
             if igc == 0:
                 slice_df['group_col'] = slice_df[gc].astype(str)
             else:
@@ -166,27 +167,6 @@ class AddTemporalAggregates(Node):
         group_by_feature = self.params['group_by']
         date_field = self.params['date_field']
 
-        # Fixing same data timestamps for same card_id
-        # check_data = data.reset_index().set_index([group_by_feature, date_field])
-        # duplicate_transactions = check_data[check_data.index.duplicated()]['TransactionID'].values
-        #
-        # while len(duplicate_transactions) > 0:
-        #     print(f"Found {len(duplicate_transactions)} duplicate transactions")
-        #     for itid, tid in enumerate(duplicate_transactions):
-        #         print(itid)
-        #         q = data.loc[tid]
-        #         date = q[date_field]
-        #         card_id = q[group_by_feature]
-        #         alldup = data[data[date_field] == date]
-        #         alldup = alldup[alldup[group_by_feature] == card_id]
-        #         #     print(alldup.index)
-        #         for it, idx in enumerate(alldup.index):
-        #             #         print(idx)
-        #             data.loc[idx, date_field] += pd.Timedelta(seconds=it)
-        #     check_data = data.reset_index().set_index([group_by_feature, date_field])
-        #     duplicate_transactions = check_data[check_data.index.duplicated()]['TransactionID'].values
-
-
         with mp.Pool() as Pool:
 
             self.output = pd.DataFrame(index=data.index)
@@ -197,7 +177,7 @@ class AddTemporalAggregates(Node):
                 print(nf)
                 df = pd.DataFrame(index=data.index)
                 data_slice = data[[date_field, group_by_feature, nf]].reset_index()
-                args = [(data_slice, group_by_feature, nf, ws) for ws in window]
+                args = [(data_slice, group_by_feature, nf, ws, date_field, data.index.name) for ws in window]
                 m = Pool.imap(aggregate_with_time_local, args)
 
                 for i, df_agg in enumerate(m):
@@ -223,28 +203,6 @@ class AddTransactionFrequenciesNode(Node):
         window = self.params['window']
         group_by_feature = self.params['group_by']
         date_field = self.params['date_field']
-
-        # Fixing same data timestamps for same card_id
-
-        # check_data = data.reset_index().set_index([group_by_feature, 'Date'])
-        # duplicate_transactions = check_data[check_data.index.duplicated()]['TransactionID'].values
-        # while len(duplicate_transactions) > 0:
-        #     print(f"Found {len(duplicate_transactions)} duplicate transactions")
-        #     for itid, tid in enumerate(duplicate_transactions):
-        #         print(itid)
-        #         q = data.loc[tid]
-        #         date = q['Date']
-        #         card_id = q[group_by_feature]
-        #         alldup = data[data['Date'] == date]
-        #         alldup = alldup[alldup[group_by_feature] == card_id]
-        #         #     print(alldup.index)
-        #         for it, idx in enumerate(alldup.index):
-        #             #         print(idx)
-        #             data.loc[idx, 'Date'] += pd.Timedelta(seconds=it)
-        #     check_data = data.reset_index().set_index([group_by_feature, 'Date'])
-        #     duplicate_transactions = check_data[check_data.index.duplicated()]['TransactionID'].values
-        #     print(data.loc[alldup.index])
-        #     break
 
         with mp.Pool() as Pool:
             self.output = pd.DataFrame(index=data.index)
