@@ -178,6 +178,7 @@ def train_model_classification(X, X_test, y, params, folds, model_type='lgb', ev
             from keras.optimizers import Adam
             import keras.backend as k
 
+
             kmodel: Model = model()
             kmodel.fit(X_train, y_train, validation_data=(X_valid, y_valid), **params)
             predict_params = {k: v for k, v in params.items() if k in ['batch_size', 'verbose', 'steps', 'callbacks',

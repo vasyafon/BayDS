@@ -65,6 +65,7 @@ class AddGroupNumericalAggregatesNode(Node):
             else:
                 slice_df['group_col'] += '_' + slice_df[gc].astype(str)
 
+        df_out = pd.DataFrame(index=df.index)
 
         for col in cols:
             group_col = slice_df.groupby(['group_col'])[col]
@@ -72,22 +73,22 @@ class AddGroupNumericalAggregatesNode(Node):
             dstd = group_col.transform('std').replace(-np.inf, np.nan).replace(np.inf, np.nan)
 
             if to_mean:
-                df[f'{col}_to_mean_groupby_{gcname}'] = (slice_df[col] / dmean).astype(np.float32)
+                df_out[f'{col}_to_mean_groupby_{gcname}'] = (slice_df[col] / dmean).astype(np.float32)
 
             if to_std:
-                df[f'{col}_to_std_groupby_{gcname}'] = (slice_df[col] / dstd).replace(
+                df_out[f'{col}_to_std_groupby_{gcname}'] = (slice_df[col] / dstd).replace(
                     {np.inf: 0, -np.inf: 0, np.nan: 0}).astype(np.float32)
 
             if to_minmax:
                 dmin = group_col.transform('min').astype(np.float32)
                 dmax = group_col.transform('max').astype(np.float32)
-                df[f'{col}_to_minmax_groupby_{gcname}'] = ((slice_df[col] - dmin) / (dmax - dmin)).replace(
+                df_out[f'{col}_to_minmax_groupby_{gcname}'] = ((slice_df[col] - dmin) / (dmax - dmin)).replace(
                     {np.inf: 0, -np.inf: 0, np.nan: 0}).astype(np.float32)
 
             if to_std_score:
-                df[f'{col}_to_stdscore_groupby_{gcname}'] = ((slice_df[col] - dmean) / dstd).replace(
+                df_out[f'{col}_to_stdscore_groupby_{gcname}'] = ((slice_df[col] - dmean) / dstd).replace(
                     {np.inf: 0, -np.inf: 0, np.nan: 0}).astype(np.float32)
-        self.output = df
+        self.output = df_out
 
 class AddGroupFrequencyEncodingNode(Node):
     params = {

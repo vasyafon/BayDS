@@ -175,14 +175,14 @@ def train_model_classification_vb(X, X_test, y, params, folds, model_type='lgb',
 
             kmodel: Model = model()
 
-            my_callbacks = [EarlyStopping(monitor='auroc', patience=early_stopping_rounds, verbose=1, mode='max')]
+            my_callbacks = [EarlyStopping(monitor='aucroc', patience=early_stopping_rounds, verbose=1, mode='max')]
 
             keras_params = {k: v for k, v in params.items() if k not in ('random_state',)}
             kmodel.fit(X_train, y_train, validation_data=(X_valid, y_valid), **keras_params, callbacks=my_callbacks)
             predict_params = {k: v for k, v in params.items() if k in ['batch_size', 'verbose', 'steps', 'callbacks',
                                                                        'max_queue_size', 'workers',
                                                                        'use_multiprocessing']}
-            y_pred_valid = kmodel.predict(X_valid, **predict_params)
+            y_pred_valid = kmodel.predict(X_valid) #, **predict_params
             score = metrics_dict[eval_metric]['sklearn_scoring_function'](y_valid, y_pred_valid)
             print(f'Fold {fold_n}. {eval_metric}: {score:.4f}.')
             if X_test is not None:
