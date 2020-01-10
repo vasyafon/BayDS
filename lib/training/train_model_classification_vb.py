@@ -186,7 +186,7 @@ def train_model_classification_vb(X, X_test, y, params, folds, model_type='lgb',
             score = metrics_dict[eval_metric]['sklearn_scoring_function'](y_valid, y_pred_valid)
             print(f'Fold {fold_n}. {eval_metric}: {score:.4f}.')
             if X_test is not None:
-                y_pred = kmodel.predict(X_test)
+                y_pred = kmodel.predict(X_test)[:,0]
 
         if model_type == 'cat':
             model = CatBoostClassifier(iterations=n_estimators, **params)

@@ -32,6 +32,51 @@ class AddAggregatesTotalNode(Node):
 
         self.output = data
 
+
+class AddGlobalNumericalAggregatesNode(Node):
+    params = {
+        'features': [],
+        'to_mean': True,
+        'to_std': True,
+        'to_minmax': True,
+        'to_std_score': True
+    }
+
+    def _run(self):
+        df = self.input
+
+        cols = self.params['features']
+        to_mean = self.params['to_mean']
+        to_std = self.params['to_std']
+        to_minmax = self.params['to_minmax']
+        to_std_score = self.params['to_std_score']
+
+        df_out = pd.DataFrame(index=df.index)
+
+        for col in cols:
+            group_col = df[col]
+            dmean = group_col.mean()
+            dstd = group_col.std()
+
+            if to_mean:
+                df_out[f'{col}_to_mean'] = (df[col] / dmean).astype(np.float32)
+
+            if to_std and not np.isnan(dstd) and dstd != 0:
+                df_out[f'{col}_to_std'] = (df[col] / dstd).replace(
+                    {np.inf: 0, -np.inf: 0}).fillna(0).astype(np.float32)
+
+            if to_minmax:
+                dmin = group_col.transform('min').astype(np.float32)
+                dmax = group_col.transform('max').astype(np.float32)
+                df_out[f'{col}_to_minmax'] = ((df[col] - dmin) / (dmax - dmin)).replace(
+                    {np.inf: 0, -np.inf: 0}).fillna(0).astype(np.float32)
+
+            if to_std_score and not np.isnan(dstd) and dstd != 0:
+                df_out[f'{col}_to_stdscore'] = ((df[col] - dmean) / dstd).replace(
+                    {np.inf: 0, -np.inf: 0}).fillna(0).astype(np.float32)
+        self.output = df_out
+
+
 class AddGroupNumericalAggregatesNode(Node):
     params = {
         'features': [],
@@ -90,6 +135,7 @@ class AddGroupNumericalAggregatesNode(Node):
                     {np.inf: 0, -np.inf: 0, np.nan: 0}).astype(np.float32)
         self.output = df_out
 
+
 class AddGroupFrequencyEncodingNode(Node):
     params = {
         'features': [],
@@ -112,11 +158,13 @@ class AddGroupFrequencyEncodingNode(Node):
             gcname = "(" + '+'.join(groupby) + ")"
 
         for igc, gc in enumerate(groupby):
-            print (igc,gc)
+            print(igc, gc)
             if igc == 0:
                 slice_df['group_col'] = slice_df[gc].astype(str)
             else:
                 slice_df['group_col'] += '_' + slice_df[gc].astype(str)
+
+        df_out = pd.DataFrame(index=df.index)
 
         if to_freq:
             count = slice_df['group_col'].map(slice_df['group_col'].value_counts(dropna=False))
@@ -124,11 +172,12 @@ class AddGroupFrequencyEncodingNode(Node):
             tempdf = (slice_df['group_col'] + '_' + slice_df[col].astype(str))
             tempdf = tempdf.map(tempdf.value_counts(dropna=False))
             if to_count:
-                df[f'{col}_count_groupby_{gcname}'] = tempdf
+                df_out[f'{col}_count_groupby_{gcname}'] = tempdf
             if to_freq:
-                df[f'{col}_freq_groupby_{gcname}'] = tempdf / count
+                df_out[f'{col}_freq_groupby_{gcname}'] = tempdf / count
 
-        self.output = df
+        self.output = df_out
+
 
 class AddGlobalFrequencyEncodingNode(Node):
     params = {
@@ -144,14 +193,16 @@ class AddGlobalFrequencyEncodingNode(Node):
         to_freq = self.params['freq']
 
         slice_df = df[cols]
+        df_out = pd.DataFrame(index=df.index)
+
         for col in cols:
             tempdf = slice_df[col].map(slice_df[col].value_counts(dropna=False))
             if to_count:
-                df[f'{col}_global_count'] = tempdf
+                df_out[f'{col}_global_count'] = tempdf
             if to_freq:
-                df[f'{col}_global_freq'] = tempdf / tempdf.shape[0]
+                df_out[f'{col}_global_freq'] = tempdf / tempdf.shape[0]
 
-        self.output = df
+        self.output = df_out
 
 
 class AddTemporalAggregates(Node):
@@ -189,9 +240,7 @@ class AddTemporalAggregates(Node):
                 self.output = self.output.join(df)
 
 
-
 class AddTransactionFrequenciesNode(Node):
-
     params = {
         'features': [],
         'date_field': '',
@@ -210,7 +259,8 @@ class AddTransactionFrequenciesNode(Node):
             df = pd.DataFrame(index=data.index)
             data_slice = data[[date_field, group_by_feature]].reset_index()
 
-            data_slice.loc[:, 'hours'] = (data_slice.date_field - data_slice.date_field.iloc[0]).dt.total_seconds() / 3600
+            data_slice.loc[:, 'hours'] = (data_slice.date_field - data_slice.date_field.iloc[
+                0]).dt.total_seconds() / 3600
 
             args = [(data_slice, group_by_feature, ws) for ws in window]
             m = Pool.imap(aggregate_transaction_frequencies, args)
@@ -219,4 +269,4 @@ class AddTransactionFrequenciesNode(Node):
                 assert df.shape[0] == df_agg.shape[0]
                 df = pd.concat([df, df_agg], axis=1)
 
-            self.output = self.output.join(df)        
+            self.output = self.output.join(df)
