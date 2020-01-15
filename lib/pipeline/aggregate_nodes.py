@@ -10,27 +10,27 @@ from ..aggregations.temporal import aggregate_with_time_local, aggregate_transac
 import multiprocess as mp
 
 
-class AddAggregatesTotalNode(Node):
-    '''
-    For every numerical feature makes to_mean and to_std
-    '''
-    params = {
-        'features': [],
-        'group_by': ''
-    }
-
-    def _run(self):
-        data = self.input
-        group_by_feature = self.params['group_by']
-
-        for fname in self.params['features']:
-            data[f'{fname}_to_mean_{group_by_feature}'] = data[fname] / data.groupby([group_by_feature])[
-                fname].transform('mean').replace(-np.inf, np.nan).replace(np.inf, np.nan).astype(np.float32)
-            data[f'{fname}_to_std_{group_by_feature}'] = data[fname] / data.groupby([group_by_feature])[
-                fname].transform('std').replace(-np.inf, np.nan).replace(np.inf, np.nan).astype(np.float32)
-            # num_cols.extend([f'{fname}_to_mean_{group_by_feature}', f'{fname}_to_std_{group_by_feature}'])
-
-        self.output = data
+# class AddAggregatesTotalNode(Node):
+#     '''
+#     For every numerical feature makes to_mean and to_std
+#     '''
+#     params = {
+#         'features': [],
+#         'group_by': ''
+#     }
+#
+#     def _run(self):
+#         data = self.input
+#         group_by_feature = self.params['group_by']
+#
+#         for fname in self.params['features']:
+#             data[f'{fname}_to_mean_{group_by_feature}'] = data[fname] / data.groupby([group_by_feature])[
+#                 fname].transform('mean').replace(-np.inf, np.nan).replace(np.inf, np.nan).astype(np.float32)
+#             data[f'{fname}_to_std_{group_by_feature}'] = data[fname] / data.groupby([group_by_feature])[
+#                 fname].transform('std').replace(-np.inf, np.nan).replace(np.inf, np.nan).astype(np.float32)
+#             # num_cols.extend([f'{fname}_to_mean_{group_by_feature}', f'{fname}_to_std_{group_by_feature}'])
+#
+#         self.output = data
 
 
 class AddGlobalNumericalAggregatesNode(Node):
@@ -84,7 +84,9 @@ class AddGroupNumericalAggregatesNode(Node):
         'to_mean': True,
         'to_std': True,
         'to_minmax': True,
-        'to_std_score': True
+        'to_std_score': True,
+        'unite_rare_groups': False,
+        'min_group_size': 10000
     }
 
     def _run(self):
@@ -96,19 +98,47 @@ class AddGroupNumericalAggregatesNode(Node):
         to_std = self.params['to_std']
         to_minmax = self.params['to_minmax']
         to_std_score = self.params['to_std_score']
+        unite_rare_groups = self.params['unite_rare_groups']
+        min_group_size = self.params['min_group_size']
 
         slice_df = df[groupby + cols]
 
+        unite_suffix = ""
+        if unite_rare_groups:
+            unite_suffix = f'|Merge<{min_group_size}'
         if len(groupby) == 1:
             gcname = groupby[0]
         else:
-            gcname = "(" + '+'.join(groupby) + ")"
+            gcname = "(" + '+'.join(groupby) + unite_suffix + ")"
 
         for igc, gc in enumerate(groupby):
             if igc == 0:
                 slice_df['group_col'] = slice_df[gc].astype(str)
             else:
                 slice_df['group_col'] += '_' + slice_df[gc].astype(str)
+
+        if unite_rare_groups:
+            gb_value_counts = pd.DataFrame(slice_df['group_col'].value_counts().sort_values())
+            gb_map = {}
+            new_category = None
+            new_count = 0
+            for old_value, count in gb_value_counts.iterrows():
+                if count.values[0] > min_group_size and new_category is None:
+                    gb_map[old_value] = old_value
+                else:
+                    if new_category is None:
+                        new_category = str(old_value) + 'Merged'
+                        new_count = count.values[0]
+                        gb_map[old_value] = new_category
+                    else:
+                        new_count += count.values[0]
+                        gb_map[old_value] = new_category
+                        if new_count > min_group_size:
+                            new_category = None
+            slice_df['group_col'] = slice_df['group_col'].replace(gb_map)
+
+        vc = slice_df["group_col"].value_counts()
+        print(f'Grouping by {len(vc)} groups, smallest is {vc.iloc[-1]} ')
 
         df_out = pd.DataFrame(index=df.index)
 
@@ -158,7 +188,6 @@ class AddGroupFrequencyEncodingNode(Node):
             gcname = "(" + '+'.join(groupby) + ")"
 
         for igc, gc in enumerate(groupby):
-            print(igc, gc)
             if igc == 0:
                 slice_df['group_col'] = slice_df[gc].astype(str)
             else:

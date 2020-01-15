@@ -2,19 +2,23 @@ import pandas as pd
 
 
 def aggregate_with_time_local(args):
-    data_slice, group_column, num_feature, window_size, time_feature, index_name = args
+    data_slice, group_column, num_feature, window_size, time_feature, index_name, is_center = args
     #     data_slice = data[['Date',group_column,num_feature]].reset_index()
     gb = data_slice.groupby([group_column])
 
-    q = gb.rolling(window_size, on=time_feature, min_periods=1)[num_feature].agg(['mean', 'std'])
+    q = gb.rolling(window_size, on=time_feature, min_periods=1, center=is_center)[num_feature].agg(['mean', 'std'])
     ds = data_slice.set_index([group_column, time_feature])
     ds = ds.join(q)
     ds = ds.set_index(index_name).sort_index()
     to_mean = ds[num_feature] / ds['mean']
     to_std = ds[num_feature] / ds['std']
     df = pd.DataFrame()
-    df[f'{num_feature}_by_{group_column}_ws{window_size}_to_mean'] = to_mean
-    df[f'{num_feature}_by_{group_column}_ws{window_size}_to_std'] = to_std
+    if is_center:
+        suffix = 'center'
+    else:
+        suffix = 'right'
+    df[f'{num_feature}_by_{group_column}_ws{window_size}_{suffix}_to_mean'] = to_mean
+    df[f'{num_feature}_by_{group_column}_ws{window_size}_{suffix}_to_std'] = to_std
     return df
 
 

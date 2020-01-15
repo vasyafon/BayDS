@@ -136,8 +136,8 @@ def train_model_classification_vb(X, X_test, y, params, folds, model_type='lgb',
                       eval_set=[(X_train, y_train), (X_valid, y_valid)],
                       eval_metric=metrics_dict[eval_metric]['lgb_metric_name'],
                       verbose=verbose, early_stopping_rounds=early_stopping_rounds)
-
-            y_pred_valid = model.predict_proba(X_valid)[:, 1]
+            gc.collect()
+            y_pred_valid = model.predict_proba(X_valid, num_iteration=model.best_iteration_)[:, 1]
             if X_test is not None:
                 y_pred = model.predict_proba(X_test, num_iteration=model.best_iteration_)[:, 1]
 
