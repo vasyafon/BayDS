@@ -9,6 +9,11 @@ import gc
 class Correlator(object):
     index = None
 
+    @property
+    def data(self):
+        return self.gpudata.get()
+
+
     def __init__(self, df: pd.DataFrame, size=3000):
         linalg.init()
 

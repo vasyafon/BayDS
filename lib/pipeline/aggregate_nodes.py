@@ -86,7 +86,9 @@ class AddGroupNumericalAggregatesNode(Node):
         'to_minmax': True,
         'to_std_score': True,
         'unite_rare_groups': False,
-        'min_group_size': 10000
+        'min_group_size': 10000,
+        'use_oleg_attenuation': False,
+        'oleg_midpoint': 1000
     }
 
     def _run(self):
@@ -100,6 +102,8 @@ class AddGroupNumericalAggregatesNode(Node):
         to_std_score = self.params['to_std_score']
         unite_rare_groups = self.params['unite_rare_groups']
         min_group_size = self.params['min_group_size']
+        use_oleg_attenuation = self.params['use_oleg_attenuation']
+        oleg_midpoint = self.params['oleg_midpoint']
 
         slice_df = df[groupby + cols]
 
@@ -137,15 +141,27 @@ class AddGroupNumericalAggregatesNode(Node):
                             new_category = None
             slice_df['group_col'] = slice_df['group_col'].replace(gb_map)
 
+        if use_oleg_attenuation:
+            oleg_k = oleg_midpoint ** 2 / np.log(2)
+
         vc = slice_df["group_col"].value_counts()
         print(f'Grouping by {len(vc)} groups, smallest is {vc.iloc[-1]} ')
 
         df_out = pd.DataFrame(index=df.index)
 
         for col in cols:
+
             group_col = slice_df.groupby(['group_col'])[col]
             dmean = group_col.transform('mean')
-            dstd = group_col.transform('std').replace(-np.inf, np.nan).replace(np.inf, np.nan)
+            dstd = group_col.transform('std').replace(-np.inf, np.nan).replace(np.inf, np.nan).fillna(0)
+
+            if use_oleg_attenuation:
+                global_mean = slice_df[col].mean()
+                global_std = slice_df[col].std()
+                group_size = group_col.transform('count')
+                coef = np.exp(-group_size ** 2 / oleg_k)
+                dmean = dmean * coef + global_mean * (1 - coef)
+                dstd = dstd * coef + global_std * (1 - coef)
 
             if to_mean:
                 df_out[f'{col}_to_mean_groupby_{gcname}'] = (slice_df[col] / dmean).astype(np.float32)
@@ -171,7 +187,9 @@ class AddGroupFrequencyEncodingNode(Node):
         'features': [],
         'group_by': [],
         'count': True,
-        'freq': False
+        'freq': False,
+        'use_oleg_attenuation': False,
+        'oleg_midpoint': 100
     }
 
     def _run(self):
@@ -180,6 +198,11 @@ class AddGroupFrequencyEncodingNode(Node):
         cols = self.params['features']
         to_count = self.params['count']
         to_freq = self.params['freq']
+        use_oleg_attenuation = self.params['use_oleg_attenuation']
+        oleg_midpoint = self.params['oleg_midpoint']
+
+        if use_oleg_attenuation:
+            oleg_k = oleg_midpoint ** 2 / np.log(2)
 
         slice_df = df[groupby + cols]
         if len(groupby) == 1:
@@ -195,15 +218,27 @@ class AddGroupFrequencyEncodingNode(Node):
 
         df_out = pd.DataFrame(index=df.index)
 
-        if to_freq:
-            count = slice_df['group_col'].map(slice_df['group_col'].value_counts(dropna=False))
+        group_count = slice_df['group_col'].map(slice_df['group_col'].value_counts(dropna=False)).astype(np.int64)
+
         for col in cols:
-            tempdf = (slice_df['group_col'] + '_' + slice_df[col].astype(str))
-            tempdf = tempdf.map(tempdf.value_counts(dropna=False))
+            gb_count = (slice_df['group_col'] + '_' + slice_df[col].astype(str))
+            gb_count = gb_count.map(gb_count.value_counts(dropna=False)).astype(np.int64)
+            gb_freq = gb_count / group_count
+
+            if use_oleg_attenuation:
+                globaldf = slice_df[col].map(slice_df[col].value_counts(dropna=False)).astype(np.int64)
+                global_count = globaldf
+                global_freq = globaldf / globaldf.shape[0]
+
+                coef = np.exp(-group_count ** 2 / oleg_k)
+
+                gb_count = gb_count * coef + global_count * (1 - coef)
+                gb_freq = gb_freq * coef + global_freq * (1 - coef)
+
             if to_count:
-                df_out[f'{col}_count_groupby_{gcname}'] = tempdf
+                df_out[f'{col}_count_groupby_{gcname}'] = gb_count
             if to_freq:
-                df_out[f'{col}_freq_groupby_{gcname}'] = tempdf / count
+                df_out[f'{col}_freq_groupby_{gcname}'] = gb_freq
 
         self.output = df_out
 
@@ -225,7 +260,7 @@ class AddGlobalFrequencyEncodingNode(Node):
         df_out = pd.DataFrame(index=df.index)
 
         for col in cols:
-            tempdf = slice_df[col].map(slice_df[col].value_counts(dropna=False))
+            tempdf = slice_df[col].map(slice_df[col].value_counts(dropna=False)).astype(np.int64)
             if to_count:
                 df_out[f'{col}_global_count'] = tempdf
             if to_freq:
